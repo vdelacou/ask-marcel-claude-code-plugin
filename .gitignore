@@ -1,0 +1,12 @@
+# Runtime data — KB, profile, scratch, watermarks: never leaves this machine
+data/
+
+# Dependencies & tooling
+node_modules/
+bun.lock*
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# OS noise
+.DS_Store
