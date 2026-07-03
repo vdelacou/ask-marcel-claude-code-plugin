@@ -40,7 +40,7 @@ email-replu/
 │   ├── draft-gate.ts                 # PreToolUse Bash: block draft cmds w/o approval state
 │   └── kb-postwrite.ts               # PostToolUse Edit|Write on data/kb: lint that file
 ├── scripts/
-│   ├── lib/                          # cli.ts (ask-marcel wrapper), graph.ts, state.ts, kb.ts
+│   ├── lib/                          # cli.ts (ask-marcel wrapper), graph.ts, state.ts, kb.ts, config.ts (caps, batches, thresholds)
 │   ├── doctor.ts                     # checks: bun, qmd, ask-marcel, auth, kb, profile, index
 │   ├── inbox-scan.ts                 # list inbox → rule-filtered candidates.json
 │   ├── fetch-email-bundle.ts         # full thread + all attachments + inline + SharePoint → bundle/
@@ -67,6 +67,7 @@ email-replu/
 │   │   ├── people/index.md …         # + orgs/ projects/ topics/ decisions/ meetings/ jargon/
 │   ├── profile/                      # voice-profile.md, about-me.md, user.md, signature.* — NOT KB
 │   ├── scratch/<run-id>/             # bundles, packages, state.json (7-day retention)
+│   ├── reports/                      # one markdown per run — permanent ops history (drift stats, tuning)
 │   └── state/                        # inbox delta watermark, gardener last-run
 └── tests/                            # bun test + fixtures/ (recorded CLI JSON envelopes)
 ```
@@ -88,13 +89,13 @@ email-replu/
 Every fix is proposed via AskUserQuestion before running; doctor re-runs at the end (idempotent).
 
 ### Phase 1 — Scan (code)
-`bun scripts/inbox-scan.ts --scope <all|unread|since-watermark> --cap 50 --json`
+`bun scripts/inbox-scan.ts --scope <all|unread|since-watermark> --cap 25 --json` (caps/batches live in `lib/config.ts`: v0.1 defaults 25/4/2, raised to 50/8/4 once the flow is proven)
 - `ask-marcel list-mail-folder-messages --mail-folder-id inbox` (+ `--filter isRead eq false` when scoped), `$select` minimal fields.
 - Rule-based drops **in code** (no LLM, no agents wasted): no-reply/notification senders, calendar responses, bulk headers, sender-domain blocklist file. Dropped items are still listed in the report ("skipped by rule X") — no silent gaps.
 - Output `candidates.json`; `state.ts init` creates the run's state machine.
 
 ### Phase 2 — Triage fan-out (parallel sub-agents)
-One **triage-scout** per candidate (model: haiku; batches of ~8):
+One **triage-scout** per candidate (model: haiku; batches of 4 in v0.1, config-raised later):
 - Reads the conversation (`convert-mail-to-markdown` on the last N messages of the thread).
 - KB context via **`qmd search` only** (BM25, no LLM rerank — parallel agents must not thrash the local reranker): sender, org, project names.
 - Returns strict JSON: `{id, conversationId, from, subject, needs_reply, urgency: high|med|low, reason, kb_refs[]}`.
@@ -105,7 +106,7 @@ One **triage-scout** per candidate (model: haiku; batches of ~8):
 - AskUserQuestion is capped at 4 options × 4 questions per call → multiSelect batches ("uncheck = skip"), 16 emails per call; preceded by a shortcut question ("draft all / let me deselect").
 - `state: triaged → approved | skipped` per email.
 
-### Phase 3 — Research fan-out (parallel sub-agents, batches of ~4)
+### Phase 3 — Research fan-out (parallel sub-agents, batches of 2 in v0.1, config-raised later)
 One **email-researcher** per approved email. Inside the agent:
 1. `fetch-email-bundle.ts` (deterministic, §7): full thread markdown + **every** attachment across **all** thread messages (incl. inline images) + resolved SharePoint links → `scratch/<run>/<emailId>/bundle/`.
 2. Read each document per the read-document rule (§7); docs >5k tokens go through doc-reader digests… *(researcher reads directly — sub-agents can't spawn sub-agents; the bundle keeps token cost per-email-isolated)*.
@@ -130,7 +131,7 @@ One **email-researcher** per approved email. Inside the agent:
 - **Jargon drain**: every abbreviation/codename encountered this run (flagged by any agent, queued via `kb-queue.ts --kind jargon`) is proposed to the user in one batch → accepted entries land in `kb/jargon/abbreviations.md` with expansion + one-line meaning.
 - **user.md curation pass**: add what this session taught about the user, improve wording, remove stale entries (§9); the diff summary appears in the report.
 - One `qmd update && qmd embed` for the whole run (not per write).
-- Report table: drafted / updated / skipped(by user / by rule) / blocked(+why); draft edit/reject rate (voice-drift indicator, §9). Coverage block — any source that errored is named.
+- Report table: drafted / updated / skipped(by user / by rule) / blocked(+why); draft edit/reject rate (voice-drift indicator, §9). Coverage block — any source that errored is named. Saved to `data/reports/<run-id>.md` (permanent — the drift alert and triage-rule tuning read this history).
 - Advance inbox watermark; scratch retention sweep (7 days).
 
 ### Unattended pre-research mode (`inbox-zero --pre-research`, in v0.1)
@@ -173,7 +174,7 @@ per run:
 | `triage-scout` | haiku | email id + thread tail + qmd hints | verdict JSON (see Phase 2) |
 | `email-researcher` | inherit (sonnet+) | email id, bundle path, voice-agnostic | package JSON (see Phase 3) incl. `contradictions[] {claim, kb_version, source_version, evidence}` and `jargon_candidates[] {term, guessed_meaning, context}` |
 | `doc-reader` | haiku (parent may escalate) | one local file path + task line | ≤300-word digest, citations by page |
-| `kb-curator` | haiku/sonnet | vetted draft: `{folder, slug, type, title, description, resource, tags, content, citations[], rationale}` | `wrote/merged/collision/skipped` + log line appended + per-file lint pass |
+| `kb-curator` | haiku | vetted draft: `{folder, slug, type, title, description, resource, tags, content, citations[], rationale}` | `wrote/merged/collision/skipped` + log line appended + per-file lint pass |
 
 Constraints stated in each agent file: no user interaction, no web, return raw data (final text = return value), never send mail.
 
@@ -268,7 +269,8 @@ Everything in `data/profile/` — outside the qmd collection, invisible to searc
 - State machine: transition table fully unit-tested (all illegal transitions rejected).
 - `draft-preflight`, `kb-lint`, `voice-extract` stripping: golden-file tests.
 - Search module: `search-exec.ts` tested with fixture backends; the loop's round logs make LLM behavior auditable after real runs.
-- Skills: tier-2 evals per skill (eval prompts + expected properties), runnable via skill-creator's eval harness.
+- **Golden fixtures for LLM steps**: recorded sample threads → expected triage verdicts and package *shapes* (required fields, strategy count, citation presence), rubric-checked — catches prompt regressions, not just code regressions.
+- Skills: tier-2 evals per skill (eval prompts + expected properties), runnable via skill-creator's eval harness (full benchmark runs deferred past v0.1).
 - `doctor.ts --json` doubles as the integration smoke test.
 
 ## 11. Reporting to the user (cross-cutting)
@@ -298,3 +300,7 @@ Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/
 11. **Gardener cadence** — DECIDED: weekly scheduled + on-demand.
 12. **Voice refresh** — DECIDED: manual + drift alert (edit/reject rate tracked per run).
 13. **user.md size** — DECIDED: ~150-line cap, gardener flags drift.
+14. **Agent models** — DECIDED: haiku for triage-scout/doc-reader/kb-curator; email-researcher inherits the session model.
+15. **Caps & batches** — DECIDED: v0.1 defaults 25 (scope) / 4 (triage batch) / 2 (research batch) in `lib/config.ts`; raise to 50/8/4 once proven.
+16. **Run reports** — DECIDED: permanent, one markdown per run in `data/reports/` (outside kb/, never indexed).
+17. **Testing depth** — DECIDED: bun unit tests for every script + golden fixtures for LLM steps; full benchmark harness deferred.
