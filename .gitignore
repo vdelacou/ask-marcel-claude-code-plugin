@@ -23,3 +23,6 @@ data/
 
 # --- OS noise ---
 .DS_Store
+
+# --- lint cache ---
+.eslintcache
