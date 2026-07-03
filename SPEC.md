@@ -83,6 +83,7 @@ email-replu/
 4. **M365 auth** → probe with a cheap GET; only on failure propose `ask-marcel login`.
 5. **KB initialized** → if `data/kb/` missing: create tree + root `index.md` (okf_version) + `log.md` + per-folder `index.md`; `qmd collection add data/kb --name replu-kb`; `qmd context add 'qmd://replu-kb' "…"`; `qmd update && qmd embed`.
 6. **Voice profile exists** in `data/profile/` → if not, run `voice-profile` skill (§9).
+7. **KB seeding** (first run only): create person pages for the manager, direct reports, and top colleagues (`list-relevant-people`), plus organization pages derived from their email domains (Graph enrichment: title, manager links). ~20–40 small pages, `source: seed`; one `qmd update && qmd embed` at the end.
 Every fix is proposed via AskUserQuestion before running; doctor re-runs at the end (idempotent).
 
 ### Phase 1 — Scan (code)
@@ -219,11 +220,12 @@ Fresh bundle at `data/kb/` per **OKF v0.1** (github.com/GoogleCloudPlatform/know
 
 ### 8b. People & organizations (first-class citizens — `references/people-orgs.md`)
 
-- **`people/<firstname-lastname>.md`** (`type: person`): frontmatter `emails:` (list — aliases resolved here), `title`, `org` (link to orgs/ page), `manager` (link), `tier` (leadership/peer/external…), `languages`, `last_contact`, `timezone`; body: focus areas, communication notes (how they like to be answered), open threads, `## Update` history.
-- **`orgs/<slug>.md`** (`type: organization`): `domains:` (email-domain → org mapping used by triage and voice bucketing), `relationship` (internal | client | partner | vendor), key people (links), related projects (links).
+- **`people/<firstname-lastname>.md`** (`type: person`): frontmatter `emails:` (list — aliases resolved here), `title`, `org` (link to orgs/ page), `manager` (link), `assistant`/`delegates` (links — org-chart depth for reply-all/CC decisions), `tier` (leadership/peer/external…), `languages`, `last_contact`, `timezone`; body: focus areas, **`## Commitments`** (what was promised to/by this person, each entry dated + linked to its source thread), open threads, `## Update` history.
+- **Commitments discipline**: the email-researcher reads the sender's (and key recipients') `## Commitments` before proposing strategies; a strategy or draft that would contradict a recorded commitment is flagged through the contradiction channel — never silently. New promises detected in threads are queued as KB facts targeting the person's Commitments section.
+- **`orgs/<slug>.md`** (`type: organization`): `domains:` (email-domain → org mapping used by triage and voice bucketing), `relationship` (internal | client | partner | vendor), key people (links), related projects (links). Commercial data (contracts, budgets, deal status) is explicitly **out of scope** in v0.1.
 - **`people/team-<slug>.md`** (`type: team`): purpose, roster as links to person pages, parent org link.
 - **Identity resolution**: kb-curator matches people **by email address first** (any alias), slug second — the same human never gets two pages; org membership derived from domain when not explicit; Graph enrichment on creation (`get-user-manager`, title) when available.
-- **Graph consistency** (gardener): every person's `org`/`manager` links resolve; duplicate-person detection (same email, different slugs) → merge; `last_contact` refreshed from mail metadata; `orgs/index.md` and `people/index.md` regenerated grouped by organization.
+- **Graph consistency** (gardener): every person's `org`/`manager`/`assistant`/`delegates` links resolve and manager *chains* are traversable (no broken chain); duplicate-person detection (same email, different slugs) → merge; `last_contact` refreshed from mail metadata; stale commitments (past-date, likely fulfilled) flagged for review; `orgs/index.md` and `people/index.md` regenerated grouped by organization.
 - **qmd**: single collection `replu-kb`. Setup also offers to *remove or refresh* stale collections found in the shared index (currently `marcel-knowledge-base` 90d, `ask-marcel-canonical` 79d — they pollute unscoped searches); all plugin searches pass `-c replu-kb`.
 
 **`kb-gardener` skill** (recurring — weekly scheduled task, plus on-demand):
@@ -278,3 +280,7 @@ Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/
 3. **KB + profile language** — DECIDED: the user's primary language, auto-detected from sent mail during voice-profile build.
 4. **git init** — DECIDED: repo initialized, `data/` gitignored (KB, profile, scratch never leave the machine).
 5. **Triage default posture** — DECIDED: when in doubt, mark needs-reply; the user deselects at Gate 1.
+6. **Phase 4 rhythm** — DECIDED: 4 gates per email as specced (contradictions → additions → strategy → approval).
+7. **Search thresholds** — DECIDED: 70/40, max 5 rounds; revisit from run logs + evals.
+8. **Person/org page scope** — DECIDED: track commitments & promises and org-chart depth (assistant/delegates/chains); communication-preferences and commercial context excluded from v0.1.
+9. **KB seeding** — DECIDED: seed people & orgs from Graph at first setup (no mail backfill).
