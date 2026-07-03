@@ -46,8 +46,8 @@ email-replu/
 │   ├── use-cases/                    # scan-inbox, fetch-email-bundle, read-doc, search-round, apply-draft,
 │   │                                 #   drain-kb-queue, lint-kb, gen-kb-index, extract-voice, run-doctor
 │   │                                 #   + ports/ (CliRunner, GraphFetch, FileStore, Clock, Logger…)
-│   ├── infra/                        # adapters: ask-marcel CLI runner, qmd runner, Graph fetch
-│   │                                 #   (createReplyAll), Bun.file store — each with a test seam (§15)
+│   ├── infra/                        # adapters: ask-marcel CLI runner, qmd runner, Bun.file store, clock
+│   │                                 #   — each with a test seam (§15); NO Graph client (decision 19)
 │   ├── presenter/                    # JSON/text envelopes the skills and hooks consume
 │   ├── composition/                  # wiring per entry point; config.ts (caps, batches, thresholds)
 │   └── test-helpers/                 # hand-written fakes for secondary ports
@@ -82,7 +82,7 @@ email-replu/
 `bun scripts/doctor.ts --json` checks, in order:
 1. **bun** present (bootstrap chicken-and-egg: SKILL.md instructs the checks in prose if bun itself is missing) → guided install: `curl -fsSL https://bun.sh/install | bash` + append PATH export to `~/.zshrc`, verify with `bun --version`.
 2. **qmd** present (≥2.5) → `bun install -g @tobilu/qmd`, then model warm-up note (~700 MB GGUF on first embed).
-3. **ask-marcel** present (≥1.5) → `npm i -g <package>` (same package the CLI's self-`update` uses).
+3. **ask-marcel** present (≥ the release shipping `create-reply-draft`, target 1.6) → `npm i -g <package>` / `ask-marcel update`.
 4. **M365 auth** → probe with a cheap GET; only on failure propose `ask-marcel login`.
 5. **KB initialized** → if `data/kb/` missing: create tree + root `index.md` (okf_version) + `log.md` + per-folder `index.md`; `qmd collection add data/kb --name replu-kb`; `qmd context add 'qmd://replu-kb' "…"`; `qmd update && qmd embed`.
 6. **Voice profile exists** in `data/profile/` → if not, run `voice-profile` skill (§9).
@@ -126,7 +126,7 @@ One **email-researcher** per approved email. Inside the agent:
 5. Draft in main thread — voice-profile bucket voice (§9), signature, language choice per recipient/thread.
 6. `draft-preflight.ts` must exit 0 (rewrite loop until clean).
 7. Show draft → **AskUserQuestion**: approve / request changes. On approve: `state → user_approved`.
-8. `draft-apply.ts`: search Drafts for an existing draft on this `conversationId` → **PATCH update** it; else **`createReplyAll`** (threaded, quoted history, inherited recipients) then PATCH body/subject. Never sends. `state → draft_created`.
+8. `draft-apply.ts`: search Drafts for an existing draft on this `conversationId` (`list-mail-folder-messages --id drafts --filter`) → **`ask-marcel update-mail-draft`**; else **`ask-marcel create-reply-draft`** (new CLI command, Graph `createReplyAll` under the hood — threaded, quoted history, inherited recipients) then update body/subject. All through the CLI — the plugin holds no Graph client and no token (decision 19). Never sends. `state → draft_created`.
 9. Drain this email's KB queue: batches to **kb-curator** (§8). `state → kb_captured → done`.
 
 ### Phase 5 — Wrap-up (code + report; run-level gates)
@@ -163,7 +163,7 @@ per run:
 | Hook | Event / matcher | Behavior |
 |---|---|---|
 | `session-context.ts` | SessionStart | Prints `data/profile/user.md` + `data/kb/jargon/abbreviations.md` → injected into context automatically, every session. Makes "always read first" physical, not conventional. |
-| `draft-gate.ts` | PreToolUse, Bash matching `draft-apply.ts\|create-mail-draft\|update-mail-draft\|createReply` | **Deny** unless `state.json` shows `user_approved` for the referenced email. Makes "no draft without approval" physical. |
+| `draft-gate.ts` | PreToolUse, Bash matching `draft-apply.ts\|create-reply-draft\|create-mail-draft\|update-mail-draft` | **Deny** unless `state.json` shows `user_approved` for the referenced email. Makes "no draft without approval" physical — and since ALL writes go through the CLI (decision 19), matching CLI commands covers every path. |
 | `preflight-tools.ts` | PreToolUse, Bash | If `ask-marcel`/`qmd`/`bun` missing → deny with "run setup" message. |
 | `kb-postwrite.ts` | PostToolUse, Edit\|Write under `data/kb/` | Lint **that file** (OKF conformance); reindex is deferred to Phase 5 / gardener (cheap, no embed storm). |
 
@@ -255,6 +255,7 @@ Everything in `data/profile/` — outside the qmd collection, invisible to searc
 
 **Voice profile.** Loaded explicitly by drafting skills.
 - **Sourcing**: `voice-extract.ts` — `search-mail-messages` KQL **`from:me` across ALL folders** (catches sent mail filed into project folders), sorted desc, keep the **last 50 substantive** messages (drop one-line acks <15 words, auto-replies, calendar responses, drafts), strip quoted chains + signature (port `extract-own-body.ts`).
+- **Bootstrap** (decision 21): built fresh with this method, but seeded with the old plugin's **banned-patterns / anti-style list** (months of tuning the new analysis would otherwise relearn); the fresh analysis can only *extend* that list, never drop entries silently.
 - **Analysis** (completing your open section — adopted from the proven method + additions):
   1. Bucket each message by recipient: upward (manager/leadership) / peers / external / broadcast (DL or >5 recipients) — org data via `get-my-manager`, `list-my-direct-reports`, domain comparison.
   2. Per bucket: greeting + sign-off forms, sentence length, formality, hedging, recurring phrases, format (bullets vs prose), CTA style, **language choice rules (FR/EN per recipient)**, 2–3 verbatim example excerpts.
@@ -282,11 +283,11 @@ Every phase announces what it's doing and why in one line; every choice (rule-dr
 
 ## 12. Ported from ask-marcel-plugin (copy + adapt, keep provenance note)
 
-`create-reply-draft.ts` (createReplyAll + attachment re-POST), `draft-preflight.ts` + anti-slop catalog, `extract-own-body.ts`, kb-curator & deep-doc-reader agent contracts, preflight-tools hook, scratch-retention convention, KQL keyword-ladder reference, probe-first auth convention.
+`draft-preflight.ts` + anti-slop catalog, `extract-own-body.ts`, the old voice profile's **banned-patterns list** (decision 21), kb-curator & deep-doc-reader agent contracts, preflight-tools hook, scratch-retention convention, KQL keyword-ladder reference, probe-first auth convention. The old `create-reply-draft.ts` is NOT ported — its createReplyAll logic moves into the ask-marcel CLI itself (decision 19); its token-cache reader dies with it.
 
 ## 13. Explicitly out of scope (v0.1)
 
-Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/archive), auto-KB sweeps of the whole inbox (the old `inbox-to-kb` pattern can be added later using the same queue + watermark machinery).
+Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/archive), auto-KB sweeps of the whole inbox (the old `inbox-to-kb` pattern can be added later using the same queue + watermark machinery), privacy capture filter / never-capture list (deliberately deferred — decision 20; capture is funneled through one code path, so adding it later is cheap).
 
 ## 14. Decisions
 
@@ -308,6 +309,26 @@ Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/
 16. **Run reports** — DECIDED: permanent, one markdown per run in `data/reports/` (outside kb/, never indexed).
 17. **Testing depth** — DECIDED: bun unit tests for every script + golden fixtures for LLM steps; full benchmark harness deferred.
 18. **Engineering standard** — DECIDED: the **atelier** standard (`.agents/skills/atelier/`) governs all TypeScript in this repo (§15); the repo is born via **atelier-greenfield**, designs are stress-tested with **atelier-grill-me**, diffs audited with **atelier-review-me** before landing.
+
+*Decisions 19–22 come from the atelier-grill-me interview (2026-07-03):*
+
+19. **CLI-only Microsoft access** — DECIDED: the plugin uses the ask-marcel CLI at maximum and recodes nothing; it holds NO Graph client and NO token. The one missing write, `create-reply-draft` (Graph `createReplyAll`), is added to ask-marcel-office-cli (target v1.6) before milestone M6. Rationale: the CLI is the single authenticated surface with exactly the right write policy; the old plugin's token-cache coupling dies.
+20. **No privacy capture filter in v0.1** — DECIDED: all triaged content is capturable to the KB; gardener + manual review are the safety net (deferred, cheap to add later — §13).
+21. **Voice bootstrap** — DECIDED: fresh build via the new `from:me` method, seeded with the old profile's banned-patterns list (carry, then extend-only).
+22. **Build order** — DECIDED: the M0→M7 ladder (§16); usable value at M2 (triage table) and M3 (voice); the cross-repo CLI feature isolated at M4.
+
+## 16. Build plan (M0→M7 — each milestone: small green confirmed commits + atelier-review-me before landing)
+
+| M | Deliverable | Proves |
+|---|---|---|
+| M0 | atelier-greenfield scaffold, walking skeleton (one state-machine transition through a use-case port), all 8 gates green. Interim manifest name `email-replu` (→ `ask-marcel` at ship, §14.1) | The engineering machine works |
+| M1 | Doctor + `setup` skill: CLI/qmd/bun checks + guided installs, M365 auth probe, OKF KB init, qmd collection, Graph people/org seeding, schedule registration | Setup end-to-end on a clean machine |
+| M2 | `inbox-scan` + triage-scout agent + Gate 1 + run report | **First daily value: the triage table** |
+| M3 | `voice-profile` skill (fresh + carried banned-list) + `draft-preflight` gate | Voice captured; drafts become possible in principle |
+| M4 | CLI interlude: `create-reply-draft` in ask-marcel-office-cli (own repo, own TDD, shipped via npm; doctor version gate flips to ≥1.6) | The only cross-repo dependency, done before it blocks |
+| M5 | Research pipeline: `fetch-email-bundle`, `read-doc`, search module (§6), email-researcher agent, packages + KB queue | Phase 3 works headless |
+| M6 | Phase 4 interactive loop + `draft-apply` + KB queue drain + jargon/user.md wrap gates | **Full inbox-zero v0.1** |
+| M7 | kb-gardener + pre-research mode + scheduling wiring | The recurring machine |
 
 ## 15. Engineering standard — atelier (binding for all code)
 
