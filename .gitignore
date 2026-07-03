@@ -1,12 +1,25 @@
-# Runtime data — KB, profile, scratch, watermarks: never leaves this machine
+# --- Node base (GitHub Node.gitignore, trimmed to what applies) ---
+logs
+*.log
+npm-debug.log*
+node_modules/
+coverage/
+*.lcov
+.cache/
+.env
+.env.*
+!.env.example
+
+# --- atelier gates ---
+.stryker-tmp/
+reports/
+
+# --- plugin runtime data — KB, profile, scratch, watermarks: never leaves this machine ---
 data/
 
-# Dependencies & tooling
-node_modules/
-bun.lock*
-
-# Local Claude Code settings
+# --- local Claude Code settings & personal lessons ---
 .claude/settings.local.json
+.claude/lessons.local.md
 
-# OS noise
+# --- OS noise ---
 .DS_Store
