@@ -84,6 +84,7 @@ email-replu/
 5. **KB initialized** → if `data/kb/` missing: create tree + root `index.md` (okf_version) + `log.md` + per-folder `index.md`; `qmd collection add data/kb --name replu-kb`; `qmd context add 'qmd://replu-kb' "…"`; `qmd update && qmd embed`.
 6. **Voice profile exists** in `data/profile/` → if not, run `voice-profile` skill (§9).
 7. **KB seeding** (first run only): create person pages for the manager, direct reports, and top colleagues (`list-relevant-people`), plus organization pages derived from their email domains (Graph enrichment: title, manager links). ~20–40 small pages, `source: seed`; one `qmd update && qmd embed` at the end.
+8. **Scheduling** (optional, proposed at setup): register the weekly `kb-gardener` task, and the weekday **pre-research** run (time chosen by the user, e.g. 06:30) — both via Claude Code scheduled tasks.
 Every fix is proposed via AskUserQuestion before running; doctor re-runs at the end (idempotent).
 
 ### Phase 1 — Scan (code)
@@ -129,8 +130,16 @@ One **email-researcher** per approved email. Inside the agent:
 - **Jargon drain**: every abbreviation/codename encountered this run (flagged by any agent, queued via `kb-queue.ts --kind jargon`) is proposed to the user in one batch → accepted entries land in `kb/jargon/abbreviations.md` with expansion + one-line meaning.
 - **user.md curation pass**: add what this session taught about the user, improve wording, remove stale entries (§9); the diff summary appears in the report.
 - One `qmd update && qmd embed` for the whole run (not per write).
-- Report table: drafted / updated / skipped(by user / by rule) / blocked(+why). Coverage block — any source that errored is named.
+- Report table: drafted / updated / skipped(by user / by rule) / blocked(+why); draft edit/reject rate (voice-drift indicator, §9). Coverage block — any source that errored is named.
 - Advance inbox watermark; scratch retention sweep (7 days).
+
+### Unattended pre-research mode (`inbox-zero --pre-research`, in v0.1)
+
+Runs Phases 0–3 headless on a schedule (e.g. weekday mornings before work) so the interactive session starts with everything already researched:
+- **Gate 1 is deferred**: every triage-positive email is researched *speculatively* (the price of overnight prep — research for emails you later deselect is discarded; the `--cap` bounds the cost).
+- **Contradictions buffer** to the reconcile queue (no user available); **jargon candidates queue**; `user.md` is never modified unattended.
+- **Drafting is physically impossible overnight**: `user_approved` state cannot exist in an unattended run, so the `draft-gate` hook denies every draft command by construction.
+- The next interactive `inbox-zero` detects the pre-researched run and **resumes the same run-id**: drains the reconcile queue first, shows the triage table at Gate 1 (deselect discards that email's package), then goes straight into Phase 4 dialogs — the slow work is already done.
 
 ### State machine (enforced by `state.ts`, every step script refuses illegal transitions)
 ```
@@ -142,7 +151,7 @@ per email:
 per run:
   init → context_loaded → …emails… → jargon_drained → user_md_reviewed → reindexed → wrapped
 ```
-`context_loaded` requires user.md + jargon read (design principle 6); `wrapped` is unreachable while any email queue is non-empty. Resume-safe: re-running `inbox-zero` picks up mid-run state instead of restarting.
+`context_loaded` requires user.md + jargon read (design principle 6); `wrapped` is unreachable while any email queue is non-empty. Resume-safe: re-running `inbox-zero` picks up mid-run state instead of restarting. Pre-research runs carry `mode: pre-research` and may not advance any email past `researched`; the interactive resume lifts that restriction.
 
 ---
 
@@ -249,6 +258,7 @@ Everything in `data/profile/` — outside the qmd collection, invisible to searc
   3. Banned-patterns list: AI tells absent from the real mail (basis of `draft-preflight.ts`, incl. em/en-dash HARD RULE).
   4. `about-me.md`: name, title, manager (`manager_confirmed` flag), reports, languages — user-corrected fields never overwritten on refresh.
 - Signature (`signature.html/.txt` + logo) captured from sent mail; embedded in drafts.
+- **Refresh policy — manual + drift alert**: no automatic rebuilds. Each run records how many approved drafts the user edited or rejected after preflight; when the rolling edit/reject rate crosses a threshold (>40% over the last 10 drafts), the wrap-up report recommends a `voice-profile` refresh. User-confirmed fields are always preserved on refresh.
 
 ---
 
@@ -284,3 +294,7 @@ Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/
 7. **Search thresholds** — DECIDED: 70/40, max 5 rounds; revisit from run logs + evals.
 8. **Person/org page scope** — DECIDED: track commitments & promises and org-chart depth (assistant/delegates/chains); communication-preferences and commercial context excluded from v0.1.
 9. **KB seeding** — DECIDED: seed people & orgs from Graph at first setup (no mail backfill).
+10. **Pre-research mode** — DECIDED: in v0.1 (unattended phases 1–3 on a schedule; see §2).
+11. **Gardener cadence** — DECIDED: weekly scheduled + on-demand.
+12. **Voice refresh** — DECIDED: manual + drift alert (edit/reject rate tracked per run).
+13. **user.md size** — DECIDED: ~150-line cap, gardener flags drift.
