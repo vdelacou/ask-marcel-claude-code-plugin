@@ -39,20 +39,22 @@ email-replu/
 │   ├── preflight-tools.ts            # PreToolUse Bash: block if CLIs missing → setup
 │   ├── draft-gate.ts                 # PreToolUse Bash: block draft cmds w/o approval state
 │   └── kb-postwrite.ts               # PostToolUse Edit|Write on data/kb: lint that file
-├── scripts/
-│   ├── lib/                          # cli.ts (ask-marcel wrapper), graph.ts, state.ts, kb.ts, config.ts (caps, batches, thresholds)
-│   ├── doctor.ts                     # checks: bun, qmd, ask-marcel, auth, kb, profile, index
-│   ├── inbox-scan.ts                 # list inbox → rule-filtered candidates.json
-│   ├── fetch-email-bundle.ts         # full thread + all attachments + inline + SharePoint → bundle/
-│   ├── read-doc.ts                   # md → images → (pdf fallback) conversion pipeline
-│   ├── search-exec.ts                # ONE search round: parallel kb/mail/sharepoint → merged list
-│   ├── state.ts                      # CLI: init/get/transition per-run state machine
-│   ├── draft-apply.ts                # createReplyAll OR update existing draft (by conversationId)
-│   ├── kb-queue.ts                   # append/list/drain candidate facts per email
-│   ├── kb-lint.ts                    # OKF conformance + links + staleness + orphans
-│   ├── kb-index-gen.ts               # regenerate index.md per folder (derived data)
-│   ├── draft-preflight.ts            # em/en-dash + anti-style gate (port + anti-slop catalog)
-│   └── voice-extract.ts              # from:me across ALL folders → 50 substantive own-bodies
+├── src/                              # ONE Bun package — atelier Clean Architecture (§15)
+│   ├── domain/                       # state-machine transitions, confidence rubric, OKF page model, triage
+│   │                                 #   rules, queue/jargon logic; branded types at trust boundaries
+│   │                                 #   (SharePointUrl, ScratchPath, KbSlug, EmailAddress…)
+│   ├── use-cases/                    # scan-inbox, fetch-email-bundle, read-doc, search-round, apply-draft,
+│   │                                 #   drain-kb-queue, lint-kb, gen-kb-index, extract-voice, run-doctor
+│   │                                 #   + ports/ (CliRunner, GraphFetch, FileStore, Clock, Logger…)
+│   ├── infra/                        # adapters: ask-marcel CLI runner, qmd runner, Graph fetch
+│   │                                 #   (createReplyAll), Bun.file store — each with a test seam (§15)
+│   ├── presenter/                    # JSON/text envelopes the skills and hooks consume
+│   ├── composition/                  # wiring per entry point; config.ts (caps, batches, thresholds)
+│   └── test-helpers/                 # hand-written fakes for secondary ports
+├── scripts/                          # THIN CLI entries only (console sanctioned here — their output IS the
+│                                     #   interface): doctor.ts, inbox-scan.ts, fetch-email-bundle.ts,
+│                                     #   read-doc.ts, search-exec.ts, state.ts, draft-apply.ts, kb-queue.ts,
+│                                     #   kb-lint.ts, kb-index-gen.ts, draft-preflight.ts, voice-extract.ts
 ├── references/
 │   ├── search-module.md              # the search contract (§6)
 │   ├── read-email.md                 # full-thread reading recipe (§7)
@@ -89,7 +91,7 @@ email-replu/
 Every fix is proposed via AskUserQuestion before running; doctor re-runs at the end (idempotent).
 
 ### Phase 1 — Scan (code)
-`bun scripts/inbox-scan.ts --scope <all|unread|since-watermark> --cap 25 --json` (caps/batches live in `lib/config.ts`: v0.1 defaults 25/4/2, raised to 50/8/4 once the flow is proven)
+`bun scripts/inbox-scan.ts --scope <all|unread|since-watermark> --cap 25 --json` (caps/batches live in `src/composition/config.ts`: v0.1 defaults 25/4/2, raised to 50/8/4 once the flow is proven)
 - `ask-marcel list-mail-folder-messages --mail-folder-id inbox` (+ `--filter isRead eq false` when scoped), `$select` minimal fields.
 - Rule-based drops **in code** (no LLM, no agents wasted): no-reply/notification senders, calendar responses, bulk headers, sender-domain blocklist file. Dropped items are still listed in the report ("skipped by rule X") — no silent gaps.
 - Output `candidates.json`; `state.ts init` creates the run's state machine.
@@ -263,14 +265,15 @@ Everything in `data/profile/` — outside the qmd collection, invisible to searc
 
 ---
 
-## 10. Testing (every step independently)
+## 10. Testing (every step independently — under the atelier discipline, §15)
 
-- Every script: standalone CLI (`--json`, `--help`), pure I/O, **`bun test`** with recorded fixtures (CLI JSON envelopes captured once, replayed — no live Graph in tests).
-- State machine: transition table fully unit-tested (all illegal transitions rejected).
+- **Outside-in classicist TDD**: the SUT is the **use-case (primary port)** — scan-inbox, apply-draft, search-round… Domain pieces (state machine, rubric, OKF model) run **real** inside those tests; only secondary ports (CliRunner, GraphFetch, FileStore, Clock) get **hand-written fakes** in `src/test-helpers/` (with error-injection knobs). Never `mock` from `bun:test`. Test names are business scenarios ("an email whose thread already has a draft gets a PATCH, not a duplicate").
+- Fakes are fed **recorded fixtures** (real CLI JSON envelopes captured once, replayed — no live Graph in tests).
+- State machine: full transition table pinned (every illegal transition rejected) — via the use-cases that exercise it.
 - `draft-preflight`, `kb-lint`, `voice-extract` stripping: golden-file tests.
-- Search module: `search-exec.ts` tested with fixture backends; the loop's round logs make LLM behavior auditable after real runs.
 - **Golden fixtures for LLM steps**: recorded sample threads → expected triage verdicts and package *shapes* (required fields, strategy count, citation presence), rubric-checked — catches prompt regressions, not just code regressions.
 - Skills: tier-2 evals per skill (eval prompts + expected properties), runnable via skill-creator's eval harness (full benchmark runs deferred past v0.1).
+- **Gates** (pre-commit, blocking): coverage 100% on `src/domain/**` + `src/use-cases/**`, 80% on composition/infra/presenter; Stryker mutation ≥90% on domain/use-cases; zero lint warnings; typecheck clean.
 - `doctor.ts --json` doubles as the integration smoke test.
 
 ## 11. Reporting to the user (cross-cutting)
@@ -301,6 +304,20 @@ Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/
 12. **Voice refresh** — DECIDED: manual + drift alert (edit/reject rate tracked per run).
 13. **user.md size** — DECIDED: ~150-line cap, gardener flags drift.
 14. **Agent models** — DECIDED: haiku for triage-scout/doc-reader/kb-curator; email-researcher inherits the session model.
-15. **Caps & batches** — DECIDED: v0.1 defaults 25 (scope) / 4 (triage batch) / 2 (research batch) in `lib/config.ts`; raise to 50/8/4 once proven.
+15. **Caps & batches** — DECIDED: v0.1 defaults 25 (scope) / 4 (triage batch) / 2 (research batch) in `src/composition/config.ts`; raise to 50/8/4 once proven.
 16. **Run reports** — DECIDED: permanent, one markdown per run in `data/reports/` (outside kb/, never indexed).
 17. **Testing depth** — DECIDED: bun unit tests for every script + golden fixtures for LLM steps; full benchmark harness deferred.
+18. **Engineering standard** — DECIDED: the **atelier** standard (`.agents/skills/atelier/`) governs all TypeScript in this repo (§15); the repo is born via **atelier-greenfield**, designs are stress-tested with **atelier-grill-me**, diffs audited with **atelier-review-me** before landing.
+
+## 15. Engineering standard — atelier (binding for all code)
+
+The four atelier skills installed at `.agents/skills/atelier*/` are the coding contract. What this means concretely for this repo (Bun-script variant):
+
+- **One Bun package, Clean Architecture**: all logic in `src/{domain,use-cases,infra,presenter,composition}`; `scripts/` and `hooks/` are thin entry points that call the composition root. `console` is sanctioned only in those entries (their stdout IS the interface consumed by skills); everywhere else the injected `Logger` port.
+- **Style hard rules**: no `class`, no `function` declarations, no `interface` (only `type`), const arrow functions with explicit return types, ESM only, plain `Error` only, no curried chains (DI factories exempt), Bun-only toolchain, `Bun.file`/`Bun.write` for file IO in production code.
+- **`Result<T, E>`** on every IO port (`Promise<Result<T, PortError>>`, discriminated-union errors); use-cases return `Result<Summary, StepError>`; `try/catch` quarantined to `src/infra/**`, pure-domain native-thrower fallbacks, and `main`-level entries.
+- **Branded types at trust boundaries**: SharePoint/web URLs extracted from mail bodies (untrusted → fetch sink), scratch paths built from email IDs (path-traversal sink), KB slugs (filesystem sink), email addresses at ingestion. Graph IDs traveling inside one trust zone stay plain strings (rule 12 carve-out).
+- **TDD, confirmation-gated (rules 11 + 24)**: every feature starts with a proposed failing test **shown to the user for explicit sign-off before it is written**; tests are never created, edited, weakened, or deleted silently. SUT = use-case; hand-written fakes only for secondary ports; the `mock` namespace from `bun:test` is banned.
+- **Gates**: eight-gate pre-commit (commit size ≤10 files/≤300 lines → package.json no-`latest` → gitleaks → tests → strict lint, zero warnings, no inline ignores ever → typecheck → coverage tiers 100/100/80 → Stryker mutation ≥90% domain/use-cases) + `commit-msg` hook enforcing Conventional Commits. New infra/composition/presenter files regenerate `scripts/coverage-preload.ts` in the same commit.
+- **Process**: trunk-based on `main` in small green commits; **no commit or push without the user's explicit per-commit confirmation** (rule 25); `.claude/LESSONS.md` journal checked at session start, candidates proposed at session end; README audited before any task is declared done.
+- **Repo birth**: the scaffold is executed by **atelier-greenfield** following `references/bun-typescript.md` verbatim — assets copied from `.agents/skills/atelier/assets/`, hooks wired via `core.hooksPath`, walking skeleton (one use-case through its primary port) proven green on all gates before the first code commit.
