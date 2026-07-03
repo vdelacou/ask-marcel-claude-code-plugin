@@ -3,12 +3,14 @@ import type { AuthProbe, DoctorReport, ToolProbe } from '../domain/doctor.ts';
 import { ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
 import type { CommandOutput, CommandRunner, RunError } from './ports/command-runner.ts';
+import type { FileProbe } from './ports/file-probe.ts';
 import type { Logger } from './ports/logger.ts';
 
 export type RunDoctor = () => Promise<Result<DoctorReport, never>>;
 
 type Deps = {
   readonly runner: CommandRunner;
+  readonly files: FileProbe;
   readonly logger: Logger;
 };
 
@@ -23,23 +25,44 @@ const toAuthProbe = (result: Result<CommandOutput, RunError>): AuthProbe => {
   return result.value.exitCode === 0 ? { kind: 'ok' } : { kind: 'unauthenticated' };
 };
 
-const gatherProbes = (deps: Deps): Promise<[Result<CommandOutput, RunError>, Result<CommandOutput, RunError>, Result<CommandOutput, RunError>, Result<CommandOutput, RunError>]> =>
+const gatherProbes = (
+  deps: Deps
+): Promise<
+  [
+    Result<CommandOutput, RunError>,
+    Result<CommandOutput, RunError>,
+    Result<CommandOutput, RunError>,
+    Result<CommandOutput, RunError>,
+    Result<CommandOutput, RunError>,
+    boolean,
+    boolean,
+    boolean,
+  ]
+> =>
   Promise.all([
     deps.runner.run('bun', ['--version']),
     deps.runner.run('qmd', ['--version']),
     deps.runner.run('ask-marcel', ['--version']),
     deps.runner.run('ask-marcel', ['get-current-user']),
+    deps.runner.run('qmd', ['collection', 'list']),
+    deps.files.exists('data/kb/index.md'),
+    deps.files.exists('data/profile/voice-profile.md'),
+    deps.files.exists('data/profile/user.md'),
   ]);
 
 export const createRunDoctor =
   (deps: Deps): RunDoctor =>
   async () => {
-    const [bun, qmd, askMarcel, auth] = await gatherProbes(deps);
+    const [bun, qmd, askMarcel, auth, collections, kbExists, voiceProfileExists, userMdExists] = await gatherProbes(deps);
     const report = evaluateDoctor({
       bun: toToolProbe(bun),
       qmd: toToolProbe(qmd),
       askMarcel: toToolProbe(askMarcel),
       auth: toAuthProbe(auth),
+      collections: toToolProbe(collections),
+      kbExists,
+      voiceProfileExists,
+      userMdExists,
     });
     deps.logger.info('doctor-completed', { ready: report.ready });
     return ok(report);

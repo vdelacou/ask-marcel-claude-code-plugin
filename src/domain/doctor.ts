@@ -17,6 +17,10 @@ export type DoctorInputs = {
   readonly qmd: ToolProbe;
   readonly askMarcel: ToolProbe;
   readonly auth: AuthProbe;
+  readonly collections: ToolProbe;
+  readonly kbExists: boolean;
+  readonly voiceProfileExists: boolean;
+  readonly userMdExists: boolean;
 };
 
 type ToolId = 'bun' | 'qmd' | 'ask-marcel';
@@ -26,6 +30,8 @@ const TOOL_POLICY: Readonly<Record<ToolId, { readonly minimum: string; readonly 
   qmd: { minimum: '2.5.0', installFix: 'bun install -g @tobilu/qmd' },
   'ask-marcel': { minimum: '1.5.0', installFix: 'npm i -g ask-marcel-office-cli (or: ask-marcel update)' },
 };
+
+const COLLECTION_FIX = 'qmd collection add data/kb --name replu-kb';
 
 const evaluateTool = (id: ToolId, probe: ToolProbe): DoctorCheck => {
   const policy = TOOL_POLICY[id];
@@ -43,12 +49,26 @@ const evaluateAuth = (auth: AuthProbe): DoctorCheck => {
   return { id: 'auth', status: 'error', detail: auth.message };
 };
 
+const evaluateCollection = (probe: ToolProbe): DoctorCheck => {
+  if (probe.kind === 'absent') return { id: 'qmd-collection', status: 'missing', detail: 'qmd is not installed', fix: COLLECTION_FIX };
+  if (probe.kind === 'failed') return { id: 'qmd-collection', status: 'error', detail: probe.message };
+  if (!probe.stdout.includes('replu-kb')) return { id: 'qmd-collection', status: 'missing', detail: 'collection replu-kb is not registered', fix: COLLECTION_FIX };
+  return { id: 'qmd-collection', status: 'ok', detail: 'replu-kb registered' };
+};
+
+const evaluateFile = (id: CheckId, exists: boolean, path: string, fix: string): DoctorCheck =>
+  exists ? { id, status: 'ok', detail: path } : { id, status: 'missing', detail: `${path} is missing`, fix };
+
 export const evaluateDoctor = (inputs: DoctorInputs): DoctorReport => {
   const checks: ReadonlyArray<DoctorCheck> = [
     evaluateTool('bun', inputs.bun),
     evaluateTool('qmd', inputs.qmd),
     evaluateTool('ask-marcel', inputs.askMarcel),
     evaluateAuth(inputs.auth),
+    evaluateFile('kb', inputs.kbExists, 'data/kb/index.md', 'initialize the OKF tree under data/kb (setup skill)'),
+    evaluateCollection(inputs.collections),
+    evaluateFile('voice-profile', inputs.voiceProfileExists, 'data/profile/voice-profile.md', 'run the voice-profile skill'),
+    evaluateFile('user-md', inputs.userMdExists, 'data/profile/user.md', 'seed data/profile/user.md (setup skill)'),
   ];
   return { ready: checks.every((c) => c.status === 'ok'), checks };
 };

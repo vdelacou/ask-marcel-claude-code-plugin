@@ -5,6 +5,7 @@ import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
 import { createLoggerFake } from '../test-helpers/logger-fake.ts';
 import type { CommandOutput, CommandRunner, RunError } from './ports/command-runner.ts';
+import type { FileProbe } from './ports/file-probe.ts';
 import { createRunDoctor } from './run-doctor.ts';
 
 type Responses = Readonly<Record<string, Result<CommandOutput, RunError>>>;
@@ -23,16 +24,23 @@ const createRunnerFake = (responses: Responses): RunnerFake => {
   };
 };
 
+const createFileProbeFake = (present: ReadonlyArray<string>): FileProbe => ({
+  exists: async (path) => present.includes(path),
+});
+
 const ALL_TOOLS: Responses = {
   'bun --version': ok({ stdout: '1.3.14', exitCode: 0 }),
   'qmd --version': ok({ stdout: '2.6.0', exitCode: 0 }),
   'ask-marcel --version': ok({ stdout: '1.5.2', exitCode: 0 }),
   'ask-marcel get-current-user': ok({ stdout: 'displayName: user', exitCode: 0 }),
+  'qmd collection list': ok({ stdout: 'replu-kb (qmd://replu-kb/)', exitCode: 0 }),
 };
 
-const runDoctor = async (overrides: Responses = {}): Promise<{ report: DoctorReport; runner: RunnerFake }> => {
+const ALL_FILES = ['data/kb/index.md', 'data/profile/voice-profile.md', 'data/profile/user.md'];
+
+const runDoctor = async (overrides: Responses = {}, files: ReadonlyArray<string> = ALL_FILES): Promise<{ report: DoctorReport; runner: RunnerFake }> => {
   const runner = createRunnerFake({ ...ALL_TOOLS, ...overrides });
-  const doctor = createRunDoctor({ runner, logger: createLoggerFake() });
+  const doctor = createRunDoctor({ runner, files: createFileProbeFake(files), logger: createLoggerFake() });
   const result = await doctor();
   if (!result.ok) throw new Error('doctor never errs');
   return { report: result.value, runner };
@@ -45,7 +53,7 @@ const check = (report: DoctorReport, id: string): DoctorCheck => {
 };
 
 describe('run-doctor', () => {
-  test('a machine with every tool installed and authenticated is reported ready', async () => {
+  test('a machine with every tool installed, authenticated, and a built KB is reported ready', async () => {
     const { report } = await runDoctor();
 
     expect(report.ready).toBe(true);
@@ -54,6 +62,10 @@ describe('run-doctor', () => {
       { id: 'qmd', status: 'ok', detail: '2.6.0' },
       { id: 'ask-marcel', status: 'ok', detail: '1.5.2' },
       { id: 'auth', status: 'ok', detail: 'Microsoft 365 session valid' },
+      { id: 'kb', status: 'ok', detail: 'data/kb/index.md' },
+      { id: 'qmd-collection', status: 'ok', detail: 'replu-kb registered' },
+      { id: 'voice-profile', status: 'ok', detail: 'data/profile/voice-profile.md' },
+      { id: 'user-md', status: 'ok', detail: 'data/profile/user.md' },
     ]);
   });
 
@@ -87,6 +99,31 @@ describe('run-doctor', () => {
     expect(runner.log.some((c) => c.includes('login'))).toBe(false);
   });
 
+  test('a repo without KB or profiles lists each initialization step separately', async () => {
+    const { report } = await runDoctor({}, []);
+
+    expect(report.ready).toBe(false);
+    expect(check(report, 'kb')).toEqual({ id: 'kb', status: 'missing', detail: 'data/kb/index.md is missing', fix: 'initialize the OKF tree under data/kb (setup skill)' });
+    expect(check(report, 'voice-profile')).toEqual({
+      id: 'voice-profile',
+      status: 'missing',
+      detail: 'data/profile/voice-profile.md is missing',
+      fix: 'run the voice-profile skill',
+    });
+    expect(check(report, 'user-md')).toEqual({ id: 'user-md', status: 'missing', detail: 'data/profile/user.md is missing', fix: 'seed data/profile/user.md (setup skill)' });
+  });
+
+  test('the qmd collection must be the replu one, not just any collection', async () => {
+    const { report } = await runDoctor({ 'qmd collection list': ok({ stdout: 'marcel-knowledge-base (qmd://marcel-knowledge-base/)', exitCode: 0 }) });
+
+    expect(check(report, 'qmd-collection')).toEqual({
+      id: 'qmd-collection',
+      status: 'missing',
+      detail: 'collection replu-kb is not registered',
+      fix: 'qmd collection add data/kb --name replu-kb',
+    });
+  });
+
   test('a tool at exactly the minimum version passes the gate', async () => {
     const { report } = await runDoctor({ 'bun --version': ok({ stdout: '1.2.0', exitCode: 0 }) });
 
@@ -113,6 +150,7 @@ describe('run-doctor', () => {
       'qmd --version': notFound('qmd'),
       'ask-marcel --version': notFound('ask-marcel'),
       'ask-marcel get-current-user': notFound('ask-marcel'),
+      'qmd collection list': notFound('qmd'),
     });
 
     expect(report.ready).toBe(false);
@@ -121,6 +159,10 @@ describe('run-doctor', () => {
       { id: 'qmd', status: 'missing', detail: 'not installed', fix: 'bun install -g @tobilu/qmd' },
       { id: 'ask-marcel', status: 'missing', detail: 'not installed', fix: 'npm i -g ask-marcel-office-cli (or: ask-marcel update)' },
       { id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'ask-marcel login' },
+      { id: 'kb', status: 'ok', detail: 'data/kb/index.md' },
+      { id: 'qmd-collection', status: 'missing', detail: 'qmd is not installed', fix: 'qmd collection add data/kb --name replu-kb' },
+      { id: 'voice-profile', status: 'ok', detail: 'data/profile/voice-profile.md' },
+      { id: 'user-md', status: 'ok', detail: 'data/profile/user.md' },
     ]);
   });
 
@@ -134,5 +176,11 @@ describe('run-doctor', () => {
     const { report } = await runDoctor({ 'qmd --version': ok({ stdout: 'built from source', exitCode: 0 }) });
 
     expect(check(report, 'qmd')).toEqual({ id: 'qmd', status: 'error', detail: 'unparseable version output: built from source' });
+  });
+
+  test('a qmd that cannot list collections is an error check', async () => {
+    const { report } = await runDoctor({ 'qmd collection list': err({ kind: 'spawn-failed', message: 'timeout after 10s' }) });
+
+    expect(check(report, 'qmd-collection')).toEqual({ id: 'qmd-collection', status: 'error', detail: 'timeout after 10s' });
   });
 });
