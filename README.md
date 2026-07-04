@@ -27,7 +27,16 @@ git config core.hooksPath .githooks   # eight-gate pre-commit + Conventional Com
 | `bun run coverage` | Per-tier coverage gate: 100% domain & use-cases, 80% infra/composition/presenter |
 | `bun run mutate` | Stryker mutation testing on domain + use-cases (break < 90%) |
 | `bun run mutate:changed` / `mutate:staged` | Mutation on changed / staged files only |
-| `bun run start` | Run `src/main.ts` (composition wiring lands at M1) |
+| `bun run start` | Run `src/main.ts` (placeholder entry) |
+
+## CLI entries
+
+| Command | What it does |
+|---|---|
+| `bun scripts/doctor.ts [--json]` | Setup report: tool versions (bun/qmd/ask-marcel), M365 auth probe, KB/profile presence — with a fix per failing check. Exit 0 with a report; exit 1 only on crash. |
+| `bun scripts/kb-init.ts [--json]` | Create the OKF knowledge-base skeleton under `data/kb/` (idempotent — an existing KB is never touched). |
+
+`LOG_LEVEL` (default `info`; the CLI entries quiet it to `error` unless explicitly set) controls the Winston logger.
 
 ## Layout
 
@@ -35,11 +44,11 @@ git config core.hooksPath .githooks   # eight-gate pre-commit + Conventional Com
 src/
 ├── domain/        # pure logic: email-state machine, branded RunId, Result — 100% coverage, mutation-gated
 ├── use-cases/     # primary ports (advance-email-state, …) + ports/ (Logger, StateStore) — 100% coverage
-├── infra/         # adapters (Winston logger; ask-marcel CLI runner from M1) — each with a test seam
-├── presenter/     # output envelopes for skills & hooks (from M2)
-├── composition/   # wiring per entry point (from M1)
+├── infra/         # adapters (Winston logger, Bun.spawn command runner, Bun.file probe/writer) — each with a test seam
+├── presenter/     # output envelopes for skills & hooks (doctor report text/JSON)
+├── composition/   # config (LOG_LEVEL) + build-deps wiring per entry point
 └── test-helpers/  # hand-written fakes (logger, state store) — no mocking library, ever
-scripts/           # gate scripts + thin CLI entries (console allowed here only)
+scripts/           # gate scripts + thin CLI entries (console allowed here only): doctor.ts, kb-init.ts
 .githooks/         # pre-commit (8 gates) + commit-msg (Conventional Commits)
 .agents/skills/    # the atelier standard this repo is built under
 data/              # runtime KB / profile / scratch — gitignored, never leaves the machine
@@ -47,4 +56,4 @@ data/              # runtime KB / profile / scratch — gitignored, never leaves
 
 ## Status
 
-M0 (scaffold + walking skeleton) complete — the SPEC §16 ladder continues with M1 (doctor + setup skill).
+M0 (scaffold + walking skeleton) complete; M1 in progress — the doctor runs for real (`bun scripts/doctor.ts`), the OKF kb-init is landing, the setup skill comes next (SPEC §16 ladder).

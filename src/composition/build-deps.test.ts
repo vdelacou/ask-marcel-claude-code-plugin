@@ -8,6 +8,8 @@ describe('composition root', () => {
 
     expect(typeof deps.runner.run).toBe('function');
     expect(typeof deps.files.exists).toBe('function');
+    expect(typeof deps.writer.write).toBe('function');
+    expect(typeof deps.clock.todayIso).toBe('function');
     expect(typeof deps.logger.info).toBe('function');
   });
 });

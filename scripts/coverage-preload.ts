@@ -15,8 +15,10 @@
  */
 
 // --- src/infra/ ---
+import '../src/infra/clock.ts';
 import '../src/infra/command-runner.ts';
 import '../src/infra/file-probe.ts';
+import '../src/infra/file-writer.ts';
 import '../src/infra/logger.ts';
 
 // --- src/composition/ ---
