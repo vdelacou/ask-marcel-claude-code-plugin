@@ -4,7 +4,7 @@ import { buildDeps } from './build-deps.ts';
 
 describe('composition root', () => {
   test('the composition root builds a complete deps record', () => {
-    const deps = buildDeps({ logLevel: 'error', seed: { relevantTop: 15, pageCap: 40 } });
+    const deps = buildDeps({ logLevel: 'error', seed: { relevantTop: 15, pageCap: 40 }, voice: { fetchTop: 100, keep: 50 } });
 
     expect(typeof deps.runner.run).toBe('function');
     expect(typeof deps.files.exists).toBe('function');
