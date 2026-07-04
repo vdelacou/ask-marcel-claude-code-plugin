@@ -30,18 +30,40 @@ const startsQuotedHeader = (trimmed: string, key: string): boolean => {
 
 const isDigits = (text: string): boolean => text !== '' && [...text].every((char) => char >= '0' && char <= '9');
 
-const isFrenchDateIntro = (trimmed: string): boolean => {
+// Localized reply-intro lines: "<prefix> <day> <month> <year> ..." - the day is
+// 1-2 digits (German writes "27."), the year four. English requires the comma
+// its real intros always carry, to spare sentences like "On May plans" (decision 23).
+const DATE_INTRO_PREFIXES: ReadonlyArray<{ readonly prefix: string; readonly comma: boolean }> = [
+  { prefix: 'Le ', comma: false },
+  { prefix: 'On ', comma: true },
+  { prefix: 'Am ', comma: false },
+  { prefix: 'El ', comma: false },
+  { prefix: 'Il giorno ', comma: false },
+  { prefix: 'Em ', comma: false },
+  { prefix: 'W dniu ', comma: false },
+  { prefix: 'Den ', comma: false },
+];
+
+const bareNumber = (word: string): string => word.replaceAll('.', '').replaceAll(',', '');
+
+const isDateIntro = (trimmed: string): boolean => {
+  const entry = DATE_INTRO_PREFIXES.find((candidate) => trimmed.startsWith(candidate.prefix));
+  if (entry === undefined || (entry.comma && !trimmed.includes(','))) return false;
   const words = trimmed.split(' ').filter((word) => word !== '');
-  const year = words[3] ?? '';
-  return words[0] === 'Le' && isDigits(words[1] ?? '') && year.length >= 4 && isDigits(year.slice(0, 4));
+  const hasDay = words.some((word) => isDigits(bareNumber(word)) && bareNumber(word).length <= 2);
+  const hasYear = words.some((word) => isDigits(bareNumber(word)) && bareNumber(word).length === 4);
+  return hasDay && hasYear;
 };
 
-const isEnglishDateIntro = (trimmed: string): boolean =>
-  trimmed.startsWith('On ') && trimmed.includes(',') && trimmed.split(' ').some((word) => isDigits(word.replace(',', '')) && word.replace(',', '').length === 4);
+// Localized quoted-header tokens. Latin ones go through startsQuotedHeader
+// (colon + bold-or-capital guard); the exact-prefix ones match with ':' or '：'.
+const LATIN_HEADER_TOKENS = ['from', 'de', 'von', 'da', 'van', 'от'];
+const EXACT_HEADER_TOKENS = ['发件人', '寄件者', '差出人', '보낸 사람'];
 
 const isHorizontalRule = (trimmed: string): boolean => {
   const squeezed = trimmed.split(' ').filter((part) => part !== '');
   if (squeezed.length === 3 && squeezed.every((part) => part === '*')) return true;
+  if (trimmed.length >= 8 && [...trimmed].every((char) => char === '_')) return true;
   return trimmed.length >= 3 && [...trimmed].every((char) => char === '-');
 };
 
@@ -51,9 +73,9 @@ const isQuotedReplyCut = (line: string): boolean => {
   if (isHorizontalRule(trimmed)) return true;
   if (trimmed.startsWith('-----Original Message-----')) return true;
   if (trimmed.startsWith('> Le ')) return true;
-  if (isFrenchDateIntro(trimmed) || isEnglishDateIntro(trimmed)) return true;
-  if (startsQuotedHeader(trimmed, 'from') || startsQuotedHeader(trimmed, 'de')) return true;
-  return trimmed.startsWith('发件人:') || trimmed.startsWith('发件人：') || trimmed.startsWith('寄件者:') || trimmed.startsWith('寄件者：');
+  if (isDateIntro(trimmed)) return true;
+  if (LATIN_HEADER_TOKENS.some((token) => startsQuotedHeader(trimmed, token))) return true;
+  return EXACT_HEADER_TOKENS.some((token) => trimmed.startsWith(`${token}:`) || trimmed.startsWith(`${token}：`));
 };
 
 const signatureMarkers = (displayName: string, jobTitlePrefix: string): ReadonlyArray<(trimmed: string) => boolean> => [

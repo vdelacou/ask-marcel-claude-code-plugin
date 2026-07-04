@@ -14,6 +14,13 @@ describe('voice rules', () => {
     expect(isSubstantive('  one two three four  five six seven eight nine ten eleven twelve thirteen fourteen')).toBe(false);
   });
 
+  test('Chinese text is substantive by character count, short acks are not', () => {
+    expect(isSubstantive('我们已经确认了下周的会议安排，请準备好预算材料和最新的项目进度报告。')).toBe(true);
+    expect(isSubstantive('收到，谢谢。')).toBe(false);
+    expect(isSubstantive('好的 ok noted 明白')).toBe(false);
+    expect(isSubstantive('회의 일정을 확인했습니다. 다음 주 화요일 오전에 예산 자료를 준비해서 보고하겠습니다.')).toBe(true);
+  });
+
   test('recipients bucket into upward, peers, external, and broadcast', () => {
     expect(bucketFor(['Jane.Boss@internal-corp.com'], [], ORG)).toBe('upward');
     const twoManagers: OrgContext = { ...ORG, managerEmails: ['jane.boss@internal-corp.com', 'other.boss@internal-corp.com'] };

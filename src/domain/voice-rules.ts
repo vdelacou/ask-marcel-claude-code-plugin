@@ -5,8 +5,18 @@ export type OrgContext = {
   readonly managerEmails: ReadonlyArray<string>;
 };
 
-/** One-line acks teach nothing about voice; the corpus keeps messages of 15+ words (SPEC.md §9). */
-export const isSubstantive = (ownBody: string): boolean => ownBody.split(/\s+/).filter((word) => word !== '').length >= 15;
+const CJK_CHAR = /[぀-ヿ㐀-䶿一-鿿가-힯]/;
+
+/**
+ * One-line acks teach nothing about voice; the corpus keeps messages of 15+
+ * words - or 25+ CJK characters, since Chinese/Japanese/Korean text has no
+ * word spaces (SPEC.md §9, decision 23).
+ */
+export const isSubstantive = (ownBody: string): boolean => {
+  const words = ownBody.split(/\s+/).filter((word) => word !== '').length;
+  const cjk = [...ownBody].filter((char) => CJK_CHAR.test(char)).length;
+  return words >= 15 || cjk >= 25;
+};
 
 const domainOf = (email: string): string => email.slice(email.indexOf('@') + 1).toLowerCase();
 

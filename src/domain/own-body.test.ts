@@ -101,6 +101,53 @@ describe('own-body extraction', () => {
     expect(extractOwnBody(`${base}\n_Chief Information Officer_\nsig`, '', 'Chief Information Officer')).toBe(base);
   });
 
+  test('Outlook underscore separators cut the chain in any language', () => {
+    const base = '好的，我们下周确认最终方案。';
+    expect(extractOwnBody(`${base}\n________________________________\nFrom: Someone`)).toBe(base);
+    expect(extractOwnBody(`${base}\n________\nold`)).toBe(base);
+    expect(extractOwnBody(`${base}\n____`)).toBe(`${base}\n____`);
+  });
+
+  test('German, Spanish, Italian, Portuguese, Russian, Korean, Japanese headers and intros cut the chain', () => {
+    const base = 'Merci pour le point, on avance comme prévu.';
+    const CUTS = [
+      'Von: Hans Mayer',
+      '**Von :** Hans Mayer',
+      'Da: Giuseppe Verdi',
+      'Van: Jan de Vries',
+      'От: Иван Петров',
+      '差出人: 田中太郎',
+      '보낸 사람: 김철수',
+      '差出人： 田中太郎',
+      'Am 27. Februar 2026 schrieb Hans Mayer:',
+      'El 27 febrero 2026, Juan escribió:',
+      'Il giorno 27 febbraio 2026, Marco ha scritto:',
+      'Em 27 de fevereiro de 2026, João escreveu:',
+      'W dniu 27 lutego 2026 Piotr napisał:',
+      'Den 27 februari 2026 skrev Erik:',
+    ];
+    for (const cut of CUTS) {
+      expect(extractOwnBody(`${base}\n${cut}\nold quoted text`)).toBe(base);
+    }
+
+    const KEEPS = [
+      'Von Anfang an war es gut',
+      'von: kleinbuchstaben bleiben',
+      'Da wir gestern sprachen, passt es',
+      'Van harte gefeliciteerd allemaal',
+      'От себя добавлю: детали в файле',
+      'Am besten machen wir das morgen früh',
+      'El equipo aprobó el plan completo',
+      'Il giorno perfetto pour annoncer ça',
+      'Em resumo, tudo bem por aqui',
+      'Den here er en fin plan',
+      'Am 27. Februar besprechen wir das',
+    ];
+    for (const keep of KEEPS) {
+      expect(extractOwnBody(`${base}\n${keep}`)).toBe(`${base}\n${keep}`);
+    }
+  });
+
   test('a bare reply with no signature or chain passes through intact', () => {
     const bare = '**Subject:** ping\n\nYes, works for me. Let us lock Tuesday 9am and invite the finance team as discussed.';
 
