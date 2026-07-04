@@ -4,10 +4,11 @@ import { buildDeps } from './build-deps.ts';
 
 describe('composition root', () => {
   test('the composition root builds a complete deps record', () => {
-    const deps = buildDeps({ logLevel: 'error' });
+    const deps = buildDeps({ logLevel: 'error', seed: { relevantTop: 15, pageCap: 40 } });
 
     expect(typeof deps.runner.run).toBe('function');
     expect(typeof deps.files.exists).toBe('function');
+    expect(typeof deps.reader.read).toBe('function');
     expect(typeof deps.writer.write).toBe('function');
     expect(typeof deps.clock.todayIso).toBe('function');
     expect(typeof deps.logger.info).toBe('function');
