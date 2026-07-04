@@ -58,10 +58,14 @@ data/              # runtime KB / profile / scratch — gitignored, never leaves
 
 `bun scripts/kb-seed.ts [--json]` — seed person/org pages from the Microsoft directory (manager, direct reports, top colleagues); never overwrites; capped (config); every page logged in `data/kb/log.md`.
 
+`bun scripts/inbox-scan.ts [--scope unread|all] [--cap N] [--json]` — Phase 1 of inbox-zero: list the inbox, apply rule-based drops (no-reply senders, calendar responses, `data/profile/blocked-senders.txt`), mint a run under `data/scratch/<run-id>/` and initialize its state machine.
+
+`bun scripts/state.ts <runId> show | advance <emailId> <toState>` — inspect or advance a run's per-email state machine; illegal transitions are refused with a typed error.
+
 ## Using as a plugin (v0.1 dev mode)
 
 Load the repo directly: `claude --plugin-dir ~/Documents/email-replu`, then invoke the `setup` skill ("set up the plugin"). Run from the repo root — `data/` (KB, profile, scratch) resolves relative to the working directory in v0.1.
 
 ## Status
 
-M0 + M1 complete — doctor, OKF kb-init, qmd collection, directory seeding, and the `setup` skill all run for real. Next on the SPEC §16 ladder: M2 (inbox scan + triage + Gate 1).
+M0 + M1 complete; M2 mostly landed — the deterministic scan pipeline (rules, envelopes, run bootstrap, file state store, `inbox-scan` + `state` CLIs) runs against the real inbox; the triage-scout agent + inbox-zero skill (Gate 1) close M2. Next: M3 (voice profile).
