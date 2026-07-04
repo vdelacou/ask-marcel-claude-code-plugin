@@ -54,6 +54,14 @@ scripts/           # gate scripts + thin CLI entries (console allowed here only)
 data/              # runtime KB / profile / scratch — gitignored, never leaves the machine
 ```
 
+## CLI entries (continued)
+
+`bun scripts/kb-seed.ts [--json]` — seed person/org pages from the Microsoft directory (manager, direct reports, top colleagues); never overwrites; capped (config); every page logged in `data/kb/log.md`.
+
+## Using as a plugin (v0.1 dev mode)
+
+Load the repo directly: `claude --plugin-dir ~/Documents/email-replu`, then invoke the `setup` skill ("set up the plugin"). Run from the repo root — `data/` (KB, profile, scratch) resolves relative to the working directory in v0.1.
+
 ## Status
 
-M0 (scaffold + walking skeleton) complete; M1 in progress — the doctor runs for real (`bun scripts/doctor.ts`), the OKF kb-init is landing, the setup skill comes next (SPEC §16 ladder).
+M0 + M1 complete — doctor, OKF kb-init, qmd collection, directory seeding, and the `setup` skill all run for real. Next on the SPEC §16 ladder: M2 (inbox scan + triage + Gate 1).

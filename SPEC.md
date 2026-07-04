@@ -321,8 +321,8 @@ Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/
 
 | M | Deliverable | Proves |
 |---|---|---|
-| M0 | atelier-greenfield scaffold, walking skeleton (one state-machine transition through a use-case port), all 8 gates green. Interim manifest name `email-replu` (→ `ask-marcel` at ship, §14.1) | The engineering machine works |
-| M1 | Doctor + `setup` skill: CLI/qmd/bun checks + guided installs, M365 auth probe, OKF KB init, qmd collection, Graph people/org seeding, schedule registration | Setup end-to-end on a clean machine |
+| M0 ✅ 2026-07-04 | atelier-greenfield scaffold, walking skeleton (one state-machine transition through a use-case port), all 8 gates green. Interim manifest name `email-replu` (→ `ask-marcel` at ship, §14.1) | The engineering machine works |
+| M1 ✅ 2026-07-04 | Doctor + `setup` skill: CLI/qmd/bun checks + guided installs, M365 auth probe, OKF KB init, qmd collection, Graph people/org seeding (16 real pages). Schedule registration deferred to M7 with the scheduling machinery; known gap: entry scripts resolve `data/` from the working directory (run from repo root in v0.1) | Setup end-to-end on a clean machine |
 | M2 | `inbox-scan` + triage-scout agent + Gate 1 + run report | **First daily value: the triage table** |
 | M3 | `voice-profile` skill (fresh + carried banned-list) + `draft-preflight` gate | Voice captured; drafts become possible in principle |
 | M4 | CLI interlude: `create-reply-draft` in ask-marcel-office-cli (own repo, own TDD, shipped via npm; doctor version gate flips to ≥1.6) | The only cross-repo dependency, done before it blocks |
