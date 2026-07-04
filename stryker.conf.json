@@ -19,8 +19,7 @@
     "low": 90,
     "break": 90
   },
-  "incremental": true,
-  "incrementalFile": "reports/stryker-incremental.json",
+  "_incremental_comment": "Incremental mode deliberately removed (diverges from the atelier asset): with testRunner 'command' the cache does not register test-only changes, and staged runs merge into the stale full-tree report - both produce wrong scores.",
   "concurrency": 4,
   "timeoutMS": 30000,
   "reporters": ["clear-text", "progress", "html"],
