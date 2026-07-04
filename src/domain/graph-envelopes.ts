@@ -98,3 +98,42 @@ export const extractMessages = (data: unknown): ReadonlyArray<InboxMessage> => {
   if (!isRecord(data) || !Array.isArray(data['value'])) return [];
   return data['value'].filter(isRecord).map(messageToInbox).filter(isMessage);
 };
+
+export type SentMeta = {
+  readonly id: string;
+  readonly subject: string;
+  readonly sentAt: string;
+  readonly to: ReadonlyArray<string>;
+  readonly cc: ReadonlyArray<string>;
+  readonly isDraft: boolean;
+};
+
+const recipientAddresses = (field: unknown): ReadonlyArray<string> => {
+  if (!Array.isArray(field)) return [];
+  return field
+    .filter(isRecord)
+    .map((entry) => (isRecord(entry['emailAddress']) ? asString(entry['emailAddress']['address']) : undefined))
+    .filter((address): address is string => address !== undefined)
+    .map((address) => address.toLowerCase());
+};
+
+const messageToSentMeta = (message: Record<string, unknown>): SentMeta | undefined => {
+  const id = asString(message['id']);
+  if (id === undefined) return undefined;
+  return {
+    id,
+    subject: asString(message['subject']) ?? '(no subject)',
+    sentAt: asString(message['receivedDateTime']) ?? '',
+    to: recipientAddresses(message['toRecipients']),
+    cc: recipientAddresses(message['ccRecipients']),
+    isDraft: message['isDraft'] === true,
+  };
+};
+
+const isSentMeta = (meta: SentMeta | undefined): meta is SentMeta => meta !== undefined;
+
+/** Sent-mail listing envelope: recipients flattened to lowercase addresses; entries without an id are skipped. */
+export const extractSentMetas = (data: unknown): ReadonlyArray<SentMeta> => {
+  if (!isRecord(data) || !Array.isArray(data['value'])) return [];
+  return data['value'].filter(isRecord).map(messageToSentMeta).filter(isSentMeta);
+};

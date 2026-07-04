@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { extractCurrentUser, extractManager, extractMessages, extractRelevantPeople, extractUsers, parseEnvelope } from './graph-envelopes.ts';
+import { extractCurrentUser, extractManager, extractMessages, extractRelevantPeople, extractSentMetas, extractUsers, parseEnvelope } from './graph-envelopes.ts';
 import { unwrap } from './result.ts';
 
 const envelope = (data: unknown): string => JSON.stringify({ ok: true, data });
@@ -45,6 +45,7 @@ describe('graph envelopes', () => {
             },
             { displayName: 'No Mail Person' },
             { mail: 'ghost@x.com' },
+            { displayName: 'UPN Only', userPrincipalName: 'UPN.Only@Internal-Corp.com' },
           ],
         })
       )
@@ -66,8 +67,11 @@ describe('graph envelopes', () => {
       )
     );
 
-    expect(extractUsers(reports)).toHaveLength(1);
-    expect(extractUsers(reports)).toEqual([{ displayName: 'Report One', emails: ['report.one@internal-corp.com'], title: 'Manager', department: 'Ops' }]);
+    expect(extractUsers(reports)).toHaveLength(2);
+    expect(extractUsers(reports)).toEqual([
+      { displayName: 'Report One', emails: ['report.one@internal-corp.com'], title: 'Manager', department: 'Ops' },
+      { displayName: 'UPN Only', emails: ['upn.only@internal-corp.com'], title: undefined, department: undefined },
+    ]);
     expect(extractRelevantPeople(relevant)).toHaveLength(1);
     expect(extractRelevantPeople(relevant)).toEqual([
       { displayName: 'Jane Boss', emails: ['jane@internal-corp.com', 'jane.boss@partner.com'], title: 'VP', company: 'Internal Corp', department: 'Direction' },
@@ -131,6 +135,33 @@ describe('graph envelopes', () => {
       },
     ]);
     expect(extractMessages({ value: 'nope' })).toEqual([]);
+
+    const sent = unwrap(
+      parseEnvelope(
+        envelope({
+          value: [
+            {
+              id: 's1',
+              subject: 'Budget',
+              receivedDateTime: '2026-07-01T08:00:00Z',
+              isDraft: true,
+              toRecipients: [{ emailAddress: { address: 'Jane@Internal-Corp.com' } }, { bad: true }, { emailAddress: { address: '' } }],
+              ccRecipients: 'nope',
+            },
+            { subject: 'no id, skipped' },
+            { id: 's2' },
+          ],
+        })
+      )
+    );
+    expect(extractSentMetas(sent)).toHaveLength(2);
+    expect(extractSentMetas(sent)[0].to).toHaveLength(1);
+    expect(extractSentMetas(sent)).toEqual([
+      { id: 's1', subject: 'Budget', sentAt: '2026-07-01T08:00:00Z', to: ['jane@internal-corp.com'], cc: [], isDraft: true },
+      { id: 's2', subject: '(no subject)', sentAt: '', to: [], cc: [], isDraft: false },
+    ]);
+    expect(extractSentMetas(null)).toEqual([]);
+    expect(extractSentMetas({ value: 'nope' })).toEqual([]);
   });
 
   test('garbage json and wrong shapes yield errors, never throws', () => {
