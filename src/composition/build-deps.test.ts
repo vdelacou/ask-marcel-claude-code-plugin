@@ -10,6 +10,7 @@ describe('composition root', () => {
     expect(typeof deps.files.exists).toBe('function');
     expect(typeof deps.reader.read).toBe('function');
     expect(typeof deps.writer.write).toBe('function');
+    expect(typeof deps.stateStore.load).toBe('function');
     expect(typeof deps.clock.todayIso).toBe('function');
     expect(typeof deps.logger.info).toBe('function');
   });

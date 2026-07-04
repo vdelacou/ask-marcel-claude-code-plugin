@@ -42,6 +42,10 @@ const TRANSITIONS: Readonly<Record<EmailState, ReadonlyArray<EmailState>>> = {
 
 export const canTransition = (from: EmailState, to: EmailState): boolean => TRANSITIONS[from].includes(to);
 
+export const isEmailState = (value: unknown): value is EmailState => typeof value === 'string' && value in TRANSITIONS;
+
+export const isRunState = (value: unknown): value is RunState => typeof value === 'object' && value !== null && Object.values(value).every(isEmailState);
+
 export const advanceEmail = (state: RunState, emailId: string, to: EmailState): Result<RunState, TransitionError> => {
   const from = state[emailId];
   if (from === undefined) return err({ kind: 'unknown-email', emailId });
