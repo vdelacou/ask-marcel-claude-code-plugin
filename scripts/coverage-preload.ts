@@ -18,3 +18,10 @@
 import '../src/infra/command-runner.ts';
 import '../src/infra/file-probe.ts';
 import '../src/infra/logger.ts';
+
+// --- src/composition/ ---
+import '../src/composition/build-deps.ts';
+import '../src/composition/config.ts';
+
+// --- src/presenter/ ---
+import '../src/presenter/doctor-report.ts';
