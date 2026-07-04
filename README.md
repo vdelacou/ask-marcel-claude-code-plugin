@@ -68,4 +68,4 @@ Load the repo directly: `claude --plugin-dir ~/Documents/email-replu`, then invo
 
 ## Status
 
-M0 + M1 complete; M2 mostly landed — the deterministic scan pipeline (rules, envelopes, run bootstrap, file state store, `inbox-scan` + `state` CLIs) runs against the real inbox; the triage-scout agent + inbox-zero skill (Gate 1) close M2. Next: M3 (voice profile).
+M0-M3 complete: doctor, OKF KB + seeding, inbox scan + triage + Gate 1 (live-validated), voice profile built from the real sent-mail corpus, draft-preflight gate active. Doctor board 7/8 - only user.md (setup interview) pending. Next: M4 (create-reply-draft in the CLI), M5-M6 (research + drafting).
