@@ -13,6 +13,7 @@ const message = (overrides: Partial<InboxMessage>): InboxMessage => ({
   hasAttachments: false,
   importance: 'normal',
   bodyPreview: '',
+  odataType: '',
   ...overrides,
 });
 
@@ -26,12 +27,49 @@ describe('triage rules', () => {
     expect(evaluateMessage(message({}), [])).toEqual({ keep: true });
   });
 
+  test('meeting responses are dropped by type, whatever the language', () => {
+    expect(evaluateMessage(message({ odataType: '#microsoft.graph.eventMessageResponse', subject: '这是一个完全中文的主题没有前缀' }), [])).toEqual({
+      keep: false,
+      reason: 'calendar-response',
+    });
+    expect(evaluateMessage(message({ odataType: '#microsoft.graph.eventMessageRequest', subject: 'Invitation: budget sync' }), [])).toEqual({ keep: true });
+  });
+
   test('calendar responses are dropped, English and French alike', () => {
     const prefixes = ['Accepted:', 'Declined:', 'Tentative:', 'Canceled:', 'Cancelled:', 'Accepté:', 'Refusé:', 'Provisoire:', 'Annulé:'];
     for (const prefix of prefixes) {
       expect(evaluateMessage(message({ subject: `${prefix} Budget review` }), [])).toEqual({ keep: false, reason: 'calendar-response' });
     }
     expect(evaluateMessage(message({ subject: 'RE: Accepted terms attached' }), [])).toEqual({ keep: true });
+  });
+
+  test('localized calendar prefixes still drop when the type is absent', () => {
+    const prefixes = [
+      '已接受',
+      '已拒绝',
+      '暂定',
+      '已取消',
+      'Zugesagt:',
+      'Abgelehnt:',
+      'Mit Vorbehalt',
+      'Abgesagt:',
+      'Aceptado:',
+      'Rechazado:',
+      'Provisional:',
+      'Cancelado:',
+      'Accettato:',
+      'Rifiutato:',
+      'Provvisorio:',
+      'Annullato:',
+      'Aceito:',
+      'Aceite:',
+      'Recusado:',
+      'Provisório:',
+    ];
+    for (const prefix of prefixes) {
+      expect(evaluateMessage(message({ subject: `${prefix} 预算会议` }), [])).toEqual({ keep: false, reason: 'calendar-response' });
+    }
+    expect(evaluateMessage(message({ subject: 'RE: Aceptado terms discussion' }), [])).toEqual({ keep: true });
   });
 
   test('blocked senders are dropped whether matched by domain or full address', () => {

@@ -118,8 +118,16 @@ describe('graph envelopes', () => {
         hasAttachments: true,
         importance: 'high',
         bodyPreview: 'Please review',
+        odataType: '',
       },
     ]);
+    const typed = unwrap(
+      parseEnvelope(
+        envelope({ value: [{ '@odata.type': '#microsoft.graph.eventMessageResponse', id: 'm9', conversationId: 'c9', from: { emailAddress: { address: 'a@x.com' } } }] })
+      )
+    );
+    expect(extractMessages(typed)[0].odataType).toBe('#microsoft.graph.eventMessageResponse');
+
     const minimal = unwrap(parseEnvelope(envelope({ value: [{ id: 'm3', conversationId: 'c3', subject: 42, from: { emailAddress: { address: 'Bare@x.com' } } }] })));
     expect(extractMessages(minimal)).toEqual([
       {
@@ -132,6 +140,7 @@ describe('graph envelopes', () => {
         hasAttachments: false,
         importance: 'normal',
         bodyPreview: '',
+        odataType: '',
       },
     ]);
     expect(extractMessages({ value: 'nope' })).toEqual([]);

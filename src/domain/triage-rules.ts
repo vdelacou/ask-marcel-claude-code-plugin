@@ -8,6 +8,7 @@ export type InboxMessage = {
   readonly hasAttachments: boolean;
   readonly importance: string;
   readonly bodyPreview: string;
+  readonly odataType: string;
 };
 
 export type DropReason = 'no-reply-sender' | 'calendar-response' | 'blocked-sender';
@@ -16,8 +17,44 @@ export type TriageDecision = { readonly keep: true } | { readonly keep: false; r
 
 const NO_REPLY_PREFIXES = ['no-reply', 'noreply', 'do-not-reply', 'donotreply', 'notification', 'notifications', 'mailer-daemon', 'postmaster', 'newsletter'];
 
-// Outlook reply-to-invitation subjects, English and French tenants alike.
-const CALENDAR_PREFIXES = ['accepted:', 'declined:', 'tentative:', 'canceled:', 'cancelled:', 'accepté', 'refusé', 'provisoire', 'annulé'];
+// Primary, language-independent signal: Graph types accept/decline/tentative
+// replies as eventMessageResponse (SPEC.md decision 23). Invites
+// (eventMessageRequest) are NOT dropped - a scout may still judge them.
+const CALENDAR_RESPONSE_TYPE = '#microsoft.graph.eventMessageResponse';
+
+// Fallback for clients that strip the odata type: localized Outlook
+// reply-to-invitation subject prefixes (EN, FR, ZH, DE, ES, IT, PT).
+const CALENDAR_PREFIXES = [
+  'accepted:',
+  'declined:',
+  'tentative:',
+  'canceled:',
+  'cancelled:',
+  'accepté',
+  'refusé',
+  'provisoire',
+  'annulé',
+  '已接受',
+  '已拒绝',
+  '暂定',
+  '已取消',
+  'zugesagt:',
+  'abgelehnt:',
+  'mit vorbehalt',
+  'abgesagt:',
+  'aceptado:',
+  'rechazado:',
+  'provisional:',
+  'cancelado:',
+  'accettato:',
+  'rifiutato:',
+  'provvisorio:',
+  'annullato:',
+  'aceito:',
+  'aceite:',
+  'recusado:',
+  'provisório:',
+];
 
 const localPart = (address: string): string => address.toLowerCase().split('@')[0] ?? '';
 
@@ -32,6 +69,7 @@ const isBlocked = (address: string, blocked: ReadonlyArray<string>): boolean =>
 
 export const evaluateMessage = (message: InboxMessage, blocked: ReadonlyArray<string>): TriageDecision => {
   if (isNoReply(message.fromAddress)) return { keep: false, reason: 'no-reply-sender' };
+  if (message.odataType === CALENDAR_RESPONSE_TYPE) return { keep: false, reason: 'calendar-response' };
   if (isCalendarResponse(message.subject)) return { keep: false, reason: 'calendar-response' };
   if (isBlocked(message.fromAddress, blocked)) return { keep: false, reason: 'blocked-sender' };
   return { keep: true };

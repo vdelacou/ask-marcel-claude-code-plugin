@@ -88,6 +88,7 @@ const messageToInbox = (message: Record<string, unknown>): InboxMessage | undefi
     hasAttachments: message['hasAttachments'] === true,
     importance: asString(message['importance']) ?? 'normal',
     bodyPreview: asString(message['bodyPreview']) ?? '',
+    odataType: asString(message['@odata.type']) ?? '',
   };
 };
 

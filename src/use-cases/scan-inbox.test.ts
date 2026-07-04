@@ -107,6 +107,7 @@ describe('scan-inbox', () => {
           hasAttachments: true,
           importance: 'high',
           bodyPreview: 'Can you confirm the Q3 envelope?',
+          odataType: '',
         },
         {
           id: 'm3',
@@ -118,6 +119,7 @@ describe('scan-inbox', () => {
           hasAttachments: false,
           importance: 'normal',
           bodyPreview: 'Please find attached',
+          odataType: '',
         },
       ],
       dropped: [{ id: 'm2', subject: 'Your weekly digest', from: 'no-reply@service.com', reason: 'no-reply-sender' }],
