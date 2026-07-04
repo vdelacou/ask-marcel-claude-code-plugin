@@ -38,7 +38,7 @@ type Setup = { readonly initKb: InitKb; readonly writer: WriterFake };
 const setup = (kbExists: boolean): Setup => {
   const files: FileProbe = { exists: async () => kbExists };
   const writer = createWriterFake();
-  const initKb = createInitKb({ files, writer, clock: { todayIso: () => TODAY }, logger: createLoggerFake() });
+  const initKb = createInitKb({ files, writer, clock: { todayIso: () => TODAY, nowIso: () => `${TODAY}T00:00:00.000Z` }, logger: createLoggerFake() });
   return { initKb, writer };
 };
 

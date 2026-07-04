@@ -47,7 +47,7 @@ const setup = (overrides: Responses = {}, existingPages: ReadonlyArray<string> =
     files: { exists: async (path) => path === 'data/kb/index.md' || existingPages.includes(path) },
     reader: { read: async (path) => (path === 'data/kb/log.md' ? ok(SEEDED_LOG) : err({ kind: 'read-failed', path, message: 'missing' })) },
     writer,
-    clock: { todayIso: () => '2026-07-04' },
+    clock: { todayIso: () => '2026-07-04', nowIso: () => '2026-07-04T00:00:00.000Z' },
     logger: createLoggerFake(),
   });
   return { seedKb, written };
@@ -157,7 +157,7 @@ describe('seed-kb', () => {
       files: { exists: async () => false },
       reader: { read: async () => err({ kind: 'read-failed', path: 'x', message: 'unused' }) },
       writer: { write: async () => ok(undefined) },
-      clock: { todayIso: () => '2026-07-04' },
+      clock: { todayIso: () => '2026-07-04', nowIso: () => '2026-07-04T00:00:00.000Z' },
       logger: createLoggerFake(),
     });
 
