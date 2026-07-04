@@ -15,15 +15,17 @@ v0.1 note: run from the plugin repository root.
 
 2. **Analyze per bucket (judgment).** Read the corpus messages bucket by bucket and extract, citing real message evidence: greeting forms and when each is used; sign-off forms; median length and structure (ask-first? bullets? bold labels?); directness and hedging; language choice per recipient (EN default? FR with whom?); recurring phrases. Pick 2-3 SHORT verbatim excerpts per bucket as examples.
 
-3. **Preserve the fingerprint.** The user's ESL phrasing, recurring constructions, and even characteristic typos are their voice - list them as KEEP, never "correct" them in drafts.
+3. **Any language counts.** The corpus filter accepts CJK text by character count (decision 23) - analyze every language present; per-language greeting/sign-off rules go in their own subsection like the FR one.
 
-4. **Write `data/profile/voice-profile.md`** from the template below: HARD RULES banner first, per-bucket sections, the Anti-style literal block (start from the existing one - entries may be ADDED from this analysis, never removed silently), then guidance rules. Frontmatter: `updated`, `source: voice-profile`, `sample_size`, `corpus` (path), `buckets`.
+4. **Preserve the fingerprint.** The user's ESL phrasing, recurring constructions, and even characteristic typos are their voice - list them as KEEP, never "correct" them in drafts.
 
-5. **Write/refresh `data/profile/about-me.md`**: name, email, title, internal domains, manager (with `manager_confirmed: true|false` - ask the user when the directory has none), languages. NEVER overwrite a field marked `*_confirmed: true` - the user's corrections outrank any probe.
+5. **Write `data/profile/voice-profile.md`** from the template below: HARD RULES banner first, per-bucket sections, the Anti-style literal block (start from the existing one - entries may be ADDED from this analysis, never removed silently), then guidance rules. Frontmatter: `updated`, `source: voice-profile`, `sample_size`, `corpus` (path), `buckets`.
 
-6. **Verify the gate.** Pipe a deliberately dirty draft through `bun scripts/draft-preflight.ts` (expect exit 1) and a clean one (expect 0) so the profile's anti-style block is proven live. Then `bun scripts/doctor.ts` - the voice-profile check must be green.
+6. **Write/refresh `data/profile/about-me.md`**: name, email, title, internal domains, manager (with `manager_confirmed: true|false` - ask the user when the directory has none), languages. NEVER overwrite a field marked `*_confirmed: true` - the user's corrections outrank any probe.
 
-7. **Report**: bucket counts, what changed vs the previous profile (if any), and the anti-style delta.
+7. **Verify the gate.** Pipe a deliberately dirty draft through `bun scripts/draft-preflight.ts` (expect exit 1) and a clean one (expect 0) so the profile's anti-style block is proven live. Then `bun scripts/doctor.ts` - the voice-profile check must be green.
+
+8. **Report**: bucket counts, what changed vs the previous profile (if any), and the anti-style delta.
 
 ## voice-profile.md template
 

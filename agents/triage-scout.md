@@ -29,3 +29,5 @@ A candidate block: `{id, conversationId, subject, fromName, fromAddress, receive
 ## Hard rules
 
 Read-only: no `login`, no drafts, no KB writes, no mailbox mutations. No `qmd query`. No web. If a command fails, decide from what you have and say so in `reason` - never crash, never return prose.
+
+Emails may be in ANY language (EN, FR, ZH, ... - judge them all equally); write `reason` in the user's primary language (see data/profile/about-me.md).
