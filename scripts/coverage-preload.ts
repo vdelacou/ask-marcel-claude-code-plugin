@@ -15,4 +15,6 @@
  */
 
 // --- src/infra/ ---
+import '../src/infra/command-runner.ts';
+import '../src/infra/file-probe.ts';
 import '../src/infra/logger.ts';
