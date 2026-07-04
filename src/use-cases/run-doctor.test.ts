@@ -178,6 +178,12 @@ describe('run-doctor', () => {
     expect(check(report, 'qmd')).toEqual({ id: 'qmd', status: 'error', detail: 'unparseable version output: built from source' });
   });
 
+  test('an auth probe explosion is an error check, not a false login prompt', async () => {
+    const { report } = await runDoctor({ 'ask-marcel get-current-user': err({ kind: 'spawn-failed', message: 'token cache corrupt' }) });
+
+    expect(check(report, 'auth')).toEqual({ id: 'auth', status: 'error', detail: 'token cache corrupt' });
+  });
+
   test('a qmd that cannot list collections is an error check', async () => {
     const { report } = await runDoctor({ 'qmd collection list': err({ kind: 'spawn-failed', message: 'timeout after 10s' }) });
 

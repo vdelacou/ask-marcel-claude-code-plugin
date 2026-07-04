@@ -133,6 +133,24 @@ describe('seed-kb', () => {
     expect(result.value.dropped).toBe(1);
   });
 
+  test('a page write failure aborts the seed naming the failing path', async () => {
+    const { seedKb } = setup({}, [], { kind: 'write-failed', path: 'data/kb/orgs/ext-corp-com.md', message: 'disk full' });
+
+    expect(await seedKb(OPTIONS)).toEqual({ ok: false, error: { kind: 'write-failed', path: 'data/kb/orgs/ext-corp-com.md', message: 'disk full' } });
+  });
+
+  test('a source that exits non-zero fails the seed as source-failed', async () => {
+    const { seedKb } = setup({ 'ask-marcel list-my-direct-reports --output json': ok({ stdout: 'boom', exitCode: 3 }) });
+
+    expect(await seedKb(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-my-direct-reports', message: 'exited 3' } });
+  });
+
+  test('a machine without the CLI fails the seed as source-failed, never a crash', async () => {
+    const { seedKb } = setup({ 'ask-marcel get-current-user --output json': err({ kind: 'not-found', message: 'ask-marcel: command not found' }) });
+
+    expect(await seedKb(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'get-current-user', message: 'ask-marcel: command not found' } });
+  });
+
   test('an uninitialized kb refuses to seed', async () => {
     const refusing = createSeedKb({
       runner: { run: async () => err({ kind: 'not-found', message: 'unused' }) },
