@@ -98,6 +98,10 @@ export default [
       // tests. Production code uses Bun.file (not flagged by this rule), so disabling
       // globally loses nothing on the real attack surface.
       'security/detect-non-literal-fs-filename': 'off',
+      // detect-non-literal-regexp: the only dynamic RegExp is own-body.ts's signature
+      // cut built from the user's OWN display name, passed through escapeRegex first -
+      // every metacharacter is neutralized, so there is no injection surface.
+      'security/detect-non-literal-regexp': 'off',
     },
   },
   sonarjsPlugin.configs.recommended,
