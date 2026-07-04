@@ -1,6 +1,6 @@
 import { extractSemver, gteSemver } from './semver.ts';
 
-export type CheckId = 'bun' | 'qmd' | 'ask-marcel' | 'auth' | 'kb' | 'qmd-collection' | 'voice-profile' | 'user-md';
+export type CheckId = 'bun' | 'qmd' | 'ask-marcel-office' | 'auth' | 'kb' | 'qmd-collection' | 'voice-profile' | 'user-md';
 
 export type CheckStatus = 'ok' | 'missing' | 'outdated' | 'error';
 
@@ -23,12 +23,12 @@ export type DoctorInputs = {
   readonly userMdExists: boolean;
 };
 
-type ToolId = 'bun' | 'qmd' | 'ask-marcel';
+type ToolId = 'bun' | 'qmd' | 'ask-marcel-office';
 
 const TOOL_POLICY: Readonly<Record<ToolId, { readonly minimum: string; readonly installFix: string }>> = {
   bun: { minimum: '1.2.0', installFix: 'curl -fsSL https://bun.sh/install | bash - then add ~/.bun/bin to PATH in ~/.zshrc' },
   qmd: { minimum: '2.5.0', installFix: 'bun install -g @tobilu/qmd' },
-  'ask-marcel': { minimum: '1.5.0', installFix: 'npm i -g ask-marcel-office-cli (or: ask-marcel update)' },
+  'ask-marcel-office': { minimum: '2.0.0', installFix: 'npm i -g ask-marcel-office-cli (or: ask-marcel-office update)' },
 };
 
 const COLLECTION_FIX = 'qmd collection add data/kb --name replu-kb';
@@ -45,7 +45,7 @@ const evaluateTool = (id: ToolId, probe: ToolProbe): DoctorCheck => {
 
 const evaluateAuth = (auth: AuthProbe): DoctorCheck => {
   if (auth.kind === 'ok') return { id: 'auth', status: 'ok', detail: 'Microsoft 365 session valid' };
-  if (auth.kind === 'unauthenticated') return { id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'ask-marcel login' };
+  if (auth.kind === 'unauthenticated') return { id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'ask-marcel-office login' };
   return { id: 'auth', status: 'error', detail: auth.message };
 };
 
@@ -63,7 +63,7 @@ export const evaluateDoctor = (inputs: DoctorInputs): DoctorReport => {
   const checks: ReadonlyArray<DoctorCheck> = [
     evaluateTool('bun', inputs.bun),
     evaluateTool('qmd', inputs.qmd),
-    evaluateTool('ask-marcel', inputs.askMarcel),
+    evaluateTool('ask-marcel-office', inputs.askMarcel),
     evaluateAuth(inputs.auth),
     evaluateFile('kb', inputs.kbExists, 'data/kb/index.md', 'initialize the OKF tree under data/kb (setup skill)'),
     evaluateCollection(inputs.collections),

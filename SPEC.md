@@ -82,7 +82,7 @@ email-replu/
 `bun scripts/doctor.ts --json` checks, in order:
 1. **bun** present (bootstrap chicken-and-egg: SKILL.md instructs the checks in prose if bun itself is missing) → guided install: `curl -fsSL https://bun.sh/install | bash` + append PATH export to `~/.zshrc`, verify with `bun --version`.
 2. **qmd** present (≥2.5) → `bun install -g @tobilu/qmd`, then model warm-up note (~700 MB GGUF on first embed).
-3. **ask-marcel** present (≥ the release shipping `create-reply-draft`, target 1.6) → `npm i -g <package>` / `ask-marcel update`.
+3. **ask-marcel-office** present (≥2.0.0 — the binary was renamed from `ask-marcel` at v2; `create-reply-draft` still pending, target next release) → `npm i -g ask-marcel-office-cli` / `ask-marcel-office update`.
 4. **M365 auth** → probe with a cheap GET; only on failure propose `ask-marcel login`.
 5. **KB initialized** → if `data/kb/` missing: create tree + root `index.md` (okf_version) + `log.md` + per-folder `index.md`; `qmd collection add data/kb --name replu-kb`; `qmd context add 'qmd://replu-kb' "…"`; `qmd update && qmd embed`.
 6. **Voice profile exists** in `data/profile/` → if not, run `voice-profile` skill (§9).
@@ -312,7 +312,7 @@ Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/
 
 *Decisions 19–22 come from the atelier-grill-me interview (2026-07-03):*
 
-19. **CLI-only Microsoft access** — DECIDED: the plugin uses the ask-marcel CLI at maximum and recodes nothing; it holds NO Graph client and NO token. The one missing write, `create-reply-draft` (Graph `createReplyAll`), is added to ask-marcel-office-cli (target v1.6) before milestone M6. Rationale: the CLI is the single authenticated surface with exactly the right write policy; the old plugin's token-cache coupling dies.
+19. **CLI-only Microsoft access** — DECIDED: the plugin uses the CLI at maximum and recodes nothing; it holds NO Graph client and NO token. The one missing write, `create-reply-draft` (Graph `createReplyAll`), is added to ask-marcel-office-cli before milestone M6 (v2.0.0 renamed the binary to `ask-marcel-office` but does not ship it yet). Rationale: the CLI is the single authenticated surface with exactly the right write policy; the old plugin's token-cache coupling dies.
 20. **No privacy capture filter in v0.1** — DECIDED: all triaged content is capturable to the KB; gardener + manual review are the safety net (deferred, cheap to add later — §13).
 21. **Voice bootstrap** — DECIDED: fresh build via the new `from:me` method, seeded with the old profile's banned-patterns list (carry, then extend-only).
 22. **Build order** — DECIDED: the M0→M7 ladder (§16); usable value at M2 (triage table) and M3 (voice); the cross-repo CLI feature isolated at M4.

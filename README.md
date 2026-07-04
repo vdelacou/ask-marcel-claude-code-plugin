@@ -1,6 +1,6 @@
 # email-replu
 
-Inbox-zero reply plugin for Claude Code (working name — ships as **ask-marcel v2**): triages the Outlook inbox, researches each email that needs an answer, drafts threaded replies in the user's voice, and grows an OKF-native knowledge base. Read-mostly by design — the only Microsoft writes are unsent drafts, always through the `ask-marcel` CLI.
+Inbox-zero reply plugin for Claude Code (working name — ships as **ask-marcel v2**): triages the Outlook inbox, researches each email that needs an answer, drafts threaded replies in the user's voice, and grows an OKF-native knowledge base. Read-mostly by design — the only Microsoft writes are unsent drafts, always through the `ask-marcel-office` CLI (v2).
 
 The full design lives in [SPEC.md](SPEC.md) (22 recorded decisions, build plan in §16). All code follows the [atelier standard](.agents/skills/atelier/SKILL.md) — strict TDD, Clean Architecture, `Result<T, E>` at IO boundaries, gates enforced by hooks.
 
@@ -33,7 +33,7 @@ git config core.hooksPath .githooks   # eight-gate pre-commit + Conventional Com
 
 | Command | What it does |
 |---|---|
-| `bun scripts/doctor.ts [--json]` | Setup report: tool versions (bun/qmd/ask-marcel), M365 auth probe, KB/profile presence — with a fix per failing check. Exit 0 with a report; exit 1 only on crash. |
+| `bun scripts/doctor.ts [--json]` | Setup report: tool versions (bun/qmd/ask-marcel-office), M365 auth probe, KB/profile presence — with a fix per failing check. Exit 0 with a report; exit 1 only on crash. |
 | `bun scripts/kb-init.ts [--json]` | Create the OKF knowledge-base skeleton under `data/kb/` (idempotent — an existing KB is never touched). |
 
 `LOG_LEVEL` (default `info`; the CLI entries quiet it to `error` unless explicitly set) controls the Winston logger.

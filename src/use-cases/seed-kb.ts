@@ -36,7 +36,7 @@ type Deps = {
 };
 
 const fetchEnvelope = async (deps: Deps, source: string, args: ReadonlyArray<string>): Promise<Result<unknown, SeedError>> => {
-  const run = await deps.runner.run('ask-marcel', [...args, '--output', 'json']);
+  const run = await deps.runner.run('ask-marcel-office', [...args, '--output', 'json']);
   if (!run.ok) return err({ kind: 'source-failed', source, message: run.error.message });
   if (run.value.exitCode !== 0) return err({ kind: 'source-failed', source, message: `exited ${run.value.exitCode}` });
   const parsed = parseEnvelope(run.value.stdout);

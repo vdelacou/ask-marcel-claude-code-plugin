@@ -31,8 +31,8 @@ const createFileProbeFake = (present: ReadonlyArray<string>): FileProbe => ({
 const ALL_TOOLS: Responses = {
   'bun --version': ok({ stdout: '1.3.14', exitCode: 0 }),
   'qmd --version': ok({ stdout: '2.6.0', exitCode: 0 }),
-  'ask-marcel --version': ok({ stdout: '1.5.2', exitCode: 0 }),
-  'ask-marcel get-current-user': ok({ stdout: 'displayName: user', exitCode: 0 }),
+  'ask-marcel-office --version': ok({ stdout: '2.0.0', exitCode: 0 }),
+  'ask-marcel-office get-current-user': ok({ stdout: 'displayName: user', exitCode: 0 }),
   'qmd collection list': ok({ stdout: 'replu-kb (qmd://replu-kb/)', exitCode: 0 }),
 };
 
@@ -60,7 +60,7 @@ describe('run-doctor', () => {
     expect(report.checks).toEqual([
       { id: 'bun', status: 'ok', detail: '1.3.14' },
       { id: 'qmd', status: 'ok', detail: '2.6.0' },
-      { id: 'ask-marcel', status: 'ok', detail: '1.5.2' },
+      { id: 'ask-marcel-office', status: 'ok', detail: '2.0.0' },
       { id: 'auth', status: 'ok', detail: 'Microsoft 365 session valid' },
       { id: 'kb', status: 'ok', detail: 'data/kb/index.md' },
       { id: 'qmd-collection', status: 'ok', detail: 'replu-kb registered' },
@@ -93,9 +93,9 @@ describe('run-doctor', () => {
   });
 
   test('an unauthenticated ask-marcel is a login fix, and no login is ever attempted', async () => {
-    const { report, runner } = await runDoctor({ 'ask-marcel get-current-user': ok({ stdout: 'InteractionRequired', exitCode: 1 }) });
+    const { report, runner } = await runDoctor({ 'ask-marcel-office get-current-user': ok({ stdout: 'InteractionRequired', exitCode: 1 }) });
 
-    expect(check(report, 'auth')).toEqual({ id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'ask-marcel login' });
+    expect(check(report, 'auth')).toEqual({ id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'ask-marcel-office login' });
     expect(runner.log.some((c) => c.includes('login'))).toBe(false);
   });
 
@@ -148,8 +148,8 @@ describe('run-doctor', () => {
     const { report } = await runDoctor({
       'bun --version': notFound('bun'),
       'qmd --version': notFound('qmd'),
-      'ask-marcel --version': notFound('ask-marcel'),
-      'ask-marcel get-current-user': notFound('ask-marcel'),
+      'ask-marcel-office --version': notFound('ask-marcel-office'),
+      'ask-marcel-office get-current-user': notFound('ask-marcel-office'),
       'qmd collection list': notFound('qmd'),
     });
 
@@ -157,8 +157,8 @@ describe('run-doctor', () => {
     expect(report.checks).toEqual([
       { id: 'bun', status: 'missing', detail: 'not installed', fix: 'curl -fsSL https://bun.sh/install | bash - then add ~/.bun/bin to PATH in ~/.zshrc' },
       { id: 'qmd', status: 'missing', detail: 'not installed', fix: 'bun install -g @tobilu/qmd' },
-      { id: 'ask-marcel', status: 'missing', detail: 'not installed', fix: 'npm i -g ask-marcel-office-cli (or: ask-marcel update)' },
-      { id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'ask-marcel login' },
+      { id: 'ask-marcel-office', status: 'missing', detail: 'not installed', fix: 'npm i -g ask-marcel-office-cli (or: ask-marcel-office update)' },
+      { id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'ask-marcel-office login' },
       { id: 'kb', status: 'ok', detail: 'data/kb/index.md' },
       { id: 'qmd-collection', status: 'missing', detail: 'qmd is not installed', fix: 'qmd collection add data/kb --name replu-kb' },
       { id: 'voice-profile', status: 'ok', detail: 'data/profile/voice-profile.md' },
@@ -179,7 +179,7 @@ describe('run-doctor', () => {
   });
 
   test('an auth probe explosion is an error check, not a false login prompt', async () => {
-    const { report } = await runDoctor({ 'ask-marcel get-current-user': err({ kind: 'spawn-failed', message: 'token cache corrupt' }) });
+    const { report } = await runDoctor({ 'ask-marcel-office get-current-user': err({ kind: 'spawn-failed', message: 'token cache corrupt' }) });
 
     expect(check(report, 'auth')).toEqual({ id: 'auth', status: 'error', detail: 'token cache corrupt' });
   });

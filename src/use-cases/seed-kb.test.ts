@@ -13,15 +13,15 @@ type Responses = Readonly<Record<string, Result<CommandOutput, RunError>>>;
 const envelope = (data: unknown): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data }), exitCode: 0 });
 
 const SOURCES: Responses = {
-  'ask-marcel get-current-user --output json': envelope({
+  'ask-marcel-office get-current-user --output json': envelope({
     displayName: 'Test User',
     mail: 'me@internal-corp.com',
     userPrincipalName: 'me@internal-corp.com',
     jobTitle: 'Director',
   }),
-  'ask-marcel get-my-manager --output json': envelope({ manager: null, note: 'signed-in user has no manager set in the directory' }),
-  'ask-marcel list-my-direct-reports --output json': envelope({ value: [{ displayName: 'Report One', mail: 'report.one@internal-corp.com', jobTitle: 'Manager' }] }),
-  'ask-marcel list-relevant-people --top 15 --output json': envelope({
+  'ask-marcel-office get-my-manager --output json': envelope({ manager: null, note: 'signed-in user has no manager set in the directory' }),
+  'ask-marcel-office list-my-direct-reports --output json': envelope({ value: [{ displayName: 'Report One', mail: 'report.one@internal-corp.com', jobTitle: 'Manager' }] }),
+  'ask-marcel-office list-relevant-people --top 15 --output json': envelope({
     value: [{ displayName: 'Ext Vendor', scoredEmailAddresses: [{ address: 'vendor@ext-corp.com' }], jobTitle: 'Sales', companyName: 'Ext Corp' }],
   }),
 };
@@ -75,8 +75,8 @@ describe('seed-kb', () => {
 
   test('the same human via two sources gets one page', async () => {
     const { seedKb } = setup({
-      'ask-marcel get-my-manager --output json': envelope({ manager: { displayName: 'Jane Boss', mail: 'jane@internal-corp.com', jobTitle: 'VP' } }),
-      'ask-marcel list-relevant-people --top 15 --output json': envelope({
+      'ask-marcel-office get-my-manager --output json': envelope({ manager: { displayName: 'Jane Boss', mail: 'jane@internal-corp.com', jobTitle: 'VP' } }),
+      'ask-marcel-office list-relevant-people --top 15 --output json': envelope({
         value: [
           {
             displayName: 'Jane Boss',
@@ -116,7 +116,7 @@ describe('seed-kb', () => {
   });
 
   test('malformed CLI json becomes a parse error, not a crash', async () => {
-    const { seedKb } = setup({ 'ask-marcel list-relevant-people --top 15 --output json': ok({ stdout: 'segfault haha', exitCode: 0 }) });
+    const { seedKb } = setup({ 'ask-marcel-office list-relevant-people --top 15 --output json': ok({ stdout: 'segfault haha', exitCode: 0 }) });
 
     const result = await seedKb(OPTIONS);
 
@@ -140,15 +140,15 @@ describe('seed-kb', () => {
   });
 
   test('a source that exits non-zero fails the seed as source-failed', async () => {
-    const { seedKb } = setup({ 'ask-marcel list-my-direct-reports --output json': ok({ stdout: 'boom', exitCode: 3 }) });
+    const { seedKb } = setup({ 'ask-marcel-office list-my-direct-reports --output json': ok({ stdout: 'boom', exitCode: 3 }) });
 
     expect(await seedKb(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-my-direct-reports', message: 'exited 3' } });
   });
 
   test('a machine without the CLI fails the seed as source-failed, never a crash', async () => {
-    const { seedKb } = setup({ 'ask-marcel get-current-user --output json': err({ kind: 'not-found', message: 'ask-marcel: command not found' }) });
+    const { seedKb } = setup({ 'ask-marcel-office get-current-user --output json': err({ kind: 'not-found', message: 'ask-marcel-office: command not found' }) });
 
-    expect(await seedKb(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'get-current-user', message: 'ask-marcel: command not found' } });
+    expect(await seedKb(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'get-current-user', message: 'ask-marcel-office: command not found' } });
   });
 
   test('an uninitialized kb refuses to seed', async () => {

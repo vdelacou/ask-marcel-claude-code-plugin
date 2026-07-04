@@ -42,8 +42,8 @@ const gatherProbes = (
   Promise.all([
     deps.runner.run('bun', ['--version']),
     deps.runner.run('qmd', ['--version']),
-    deps.runner.run('ask-marcel', ['--version']),
-    deps.runner.run('ask-marcel', ['get-current-user']),
+    deps.runner.run('ask-marcel-office', ['--version']),
+    deps.runner.run('ask-marcel-office', ['get-current-user']),
     deps.runner.run('qmd', ['collection', 'list']),
     deps.files.exists('data/kb/index.md'),
     deps.files.exists('data/profile/voice-profile.md'),
