@@ -1,6 +1,7 @@
 import type { PersonSeed } from './person-page.ts';
 import { err, ok } from './result.ts';
 import type { Result } from './result.ts';
+import type { InboxMessage } from './triage-rules.ts';
 
 export type CurrentUser = { readonly displayName: string; readonly email: string; readonly domain: string };
 
@@ -66,4 +67,34 @@ const personToSeed = (person: Record<string, unknown>): PersonSeed | undefined =
 export const extractRelevantPeople = (data: unknown): ReadonlyArray<PersonSeed> => {
   if (!isRecord(data) || !Array.isArray(data['value'])) return [];
   return data['value'].filter(isRecord).map(personToSeed).filter(isSeed);
+};
+
+const messageToInbox = (message: Record<string, unknown>): InboxMessage | undefined => {
+  const id = asString(message['id']);
+  const conversationId = asString(message['conversationId']);
+  const fromField = message['from'];
+  const emailAddress = isRecord(fromField) ? fromField['emailAddress'] : undefined;
+  const sender = isRecord(emailAddress) ? emailAddress : undefined;
+  const fromAddress = sender === undefined ? undefined : asString(sender['address']);
+  if (id === undefined || conversationId === undefined || sender === undefined || fromAddress === undefined) return undefined;
+  const address = fromAddress.toLowerCase();
+  return {
+    id,
+    conversationId,
+    subject: asString(message['subject']) ?? '(no subject)',
+    fromName: asString(sender['name']) ?? address,
+    fromAddress: address,
+    receivedDateTime: asString(message['receivedDateTime']) ?? '',
+    hasAttachments: message['hasAttachments'] === true,
+    importance: asString(message['importance']) ?? 'normal',
+    bodyPreview: asString(message['bodyPreview']) ?? '',
+  };
+};
+
+const isMessage = (message: InboxMessage | undefined): message is InboxMessage => message !== undefined;
+
+/** Mail-folder listing envelope: `{ value: [message resource, …] }` — entries without id, conversation, or sender are skipped. */
+export const extractMessages = (data: unknown): ReadonlyArray<InboxMessage> => {
+  if (!isRecord(data) || !Array.isArray(data['value'])) return [];
+  return data['value'].filter(isRecord).map(messageToInbox).filter(isMessage);
 };

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { extractCurrentUser, extractManager, extractRelevantPeople, extractUsers, parseEnvelope } from './graph-envelopes.ts';
+import { extractCurrentUser, extractManager, extractMessages, extractRelevantPeople, extractUsers, parseEnvelope } from './graph-envelopes.ts';
 import { unwrap } from './result.ts';
 
 const envelope = (data: unknown): string => JSON.stringify({ ok: true, data });
@@ -13,13 +13,19 @@ describe('graph envelopes', () => {
           '@odata.context': 'https://graph.microsoft.com/v1.0/$metadata#users/$entity',
           displayName: 'Test User',
           mail: 'Me@Internal-Corp.com',
-          userPrincipalName: 'me@internal-corp.com',
+          userPrincipalName: 'test.user@internal-corp.onmicrosoft.com',
           jobTitle: 'Director',
         })
       )
     );
 
     expect(extractCurrentUser(data)).toEqual({ ok: true, value: { displayName: 'Test User', email: 'me@internal-corp.com', domain: 'internal-corp.com' } });
+
+    const upnOnly = unwrap(parseEnvelope(envelope({ displayName: 'Test User', userPrincipalName: 'Me@Internal-Corp.com' })));
+    expect(extractCurrentUser(upnOnly)).toEqual({ ok: true, value: { displayName: 'Test User', email: 'me@internal-corp.com', domain: 'internal-corp.com' } });
+
+    const emptyMail = unwrap(parseEnvelope(envelope({ displayName: 'Test User', mail: '', userPrincipalName: 'me@internal-corp.com' })));
+    expect(extractCurrentUser(emptyMail)).toEqual({ ok: true, value: { displayName: 'Test User', email: 'me@internal-corp.com', domain: 'internal-corp.com' } });
   });
 
   test('user lists and relevant people flatten to person seeds, entries without an email are skipped', () => {
@@ -27,8 +33,18 @@ describe('graph envelopes', () => {
       parseEnvelope(
         envelope({
           value: [
-            { '@odata.type': '#microsoft.graph.user', displayName: 'Report One', mail: 'Report.One@internal-corp.com', jobTitle: 'Manager', givenName: 'Report', surname: 'One' },
+            {
+              '@odata.type': '#microsoft.graph.user',
+              displayName: 'Report One',
+              mail: 'Report.One@internal-corp.com',
+              userPrincipalName: 'r.one@internal-corp.onmicrosoft.com',
+              jobTitle: 'Manager',
+              department: 'Ops',
+              givenName: 'Report',
+              surname: 'One',
+            },
             { displayName: 'No Mail Person' },
+            { mail: 'ghost@x.com' },
           ],
         })
       )
@@ -50,7 +66,9 @@ describe('graph envelopes', () => {
       )
     );
 
-    expect(extractUsers(reports)).toEqual([{ displayName: 'Report One', emails: ['report.one@internal-corp.com'], title: 'Manager', department: undefined }]);
+    expect(extractUsers(reports)).toHaveLength(1);
+    expect(extractUsers(reports)).toEqual([{ displayName: 'Report One', emails: ['report.one@internal-corp.com'], title: 'Manager', department: 'Ops' }]);
+    expect(extractRelevantPeople(relevant)).toHaveLength(1);
     expect(extractRelevantPeople(relevant)).toEqual([
       { displayName: 'Jane Boss', emails: ['jane@internal-corp.com', 'jane.boss@partner.com'], title: 'VP', company: 'Internal Corp', department: 'Direction' },
     ]);
@@ -64,11 +82,63 @@ describe('graph envelopes', () => {
     expect(extractManager(withManager)).toEqual({ displayName: 'Jane Boss', emails: ['jane@internal-corp.com'], title: 'VP', department: undefined });
   });
 
+  test('inbox message envelopes flatten with sender identity, malformed entries skipped', () => {
+    const data = unwrap(
+      parseEnvelope(
+        envelope({
+          value: [
+            {
+              id: 'm1',
+              conversationId: 'c1',
+              subject: 'Budget',
+              from: { emailAddress: { name: 'Jane Boss', address: 'Jane@Internal-Corp.com' } },
+              receivedDateTime: '2026-07-04T08:00:00Z',
+              hasAttachments: true,
+              importance: 'high',
+              bodyPreview: 'Please review',
+            },
+            { id: 'm2', subject: 'malformed, no sender' },
+          ],
+        })
+      )
+    );
+
+    expect(extractMessages(data)).toEqual([
+      {
+        id: 'm1',
+        conversationId: 'c1',
+        subject: 'Budget',
+        fromName: 'Jane Boss',
+        fromAddress: 'jane@internal-corp.com',
+        receivedDateTime: '2026-07-04T08:00:00Z',
+        hasAttachments: true,
+        importance: 'high',
+        bodyPreview: 'Please review',
+      },
+    ]);
+    const minimal = unwrap(parseEnvelope(envelope({ value: [{ id: 'm3', conversationId: 'c3', subject: 42, from: { emailAddress: { address: 'Bare@x.com' } } }] })));
+    expect(extractMessages(minimal)).toEqual([
+      {
+        id: 'm3',
+        conversationId: 'c3',
+        subject: '(no subject)',
+        fromName: 'bare@x.com',
+        fromAddress: 'bare@x.com',
+        receivedDateTime: '',
+        hasAttachments: false,
+        importance: 'normal',
+        bodyPreview: '',
+      },
+    ]);
+    expect(extractMessages({ value: 'nope' })).toEqual([]);
+  });
+
   test('garbage json and wrong shapes yield errors, never throws', () => {
     expect(parseEnvelope('not json at all')).toEqual({ ok: false, error: 'invalid json' });
     expect(parseEnvelope(JSON.stringify({ ok: false, error: 'boom' }))).toEqual({ ok: false, error: 'envelope is not ok' });
     expect(extractCurrentUser(42)).toEqual({ ok: false, error: 'current-user: unexpected shape' });
     expect(extractCurrentUser({ displayName: 'X' })).toEqual({ ok: false, error: 'current-user: missing displayName or mail' });
+    expect(extractCurrentUser({ mail: 'x@y.com' })).toEqual({ ok: false, error: 'current-user: missing displayName or mail' });
     expect(extractUsers(null)).toEqual([]);
     expect(extractRelevantPeople({ value: 'nope' })).toEqual([]);
     expect(extractManager('nope')).toBeUndefined();
