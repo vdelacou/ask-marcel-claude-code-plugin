@@ -41,3 +41,11 @@ Type-guard halves like `typeof v === 'string' && v in TABLE` produce survivors b
 ## [decision] 2026-07-04 | v0.1 entries resolve data/ from the working directory
 
 doctor.ts, kb-init.ts, and kb-seed.ts all address data/kb and data/profile relative to CWD, so v0.1 must run from the repo root (documented in README and the setup skill). Before shipping as an installed plugin, thread a base directory through config into the composition root instead of hardcoding relative paths.
+
+## [gotcha] 2026-07-05 | mutate:staged runs minutes on multi-file commits
+
+The pre-commit mutation gate mutates every staged domain/use-case file. A 3-file / 335-mutant commit took 2m42s; a 2-minute command timeout killed `git commit` mid-gate (exit 143) while the gate was passing (0 survived), so nothing landed and the files stayed staged. Budget a long timeout (>= 600000 ms) for any commit touching more than one src/ file, and read the verdict from the hook's own exit code, not the wrapper's.
+
+## [decision] 2026-07-05 | fetch-email-bundle split by metadata-vs-rendering seam
+
+The use-case plus its mutation-complete tests came to 377 lines, over the 300-line commit gate, and email-thread.ts is classicist-tested only through the use-case (no dedicated test), so it cannot land in its own commit. Split the feature by behaviour seam, not file type: B1 = thread-membership metadata manifest (list-conversation-messages -> chronological manifest), B2 = per-message markdown rendering (convert-mail-to-markdown -> path + status). The coming attachments and SharePoint slices of fetch-email-bundle will exceed 300 the same way — pre-plan their seams when proposing the tests.
