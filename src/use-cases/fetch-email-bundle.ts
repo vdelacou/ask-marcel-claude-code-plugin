@@ -2,6 +2,8 @@ import { emailIdSegment } from '../domain/bundle-path.ts';
 import { extractMarkdown, extractThreadMessages } from '../domain/email-thread.ts';
 import type { ThreadMessage } from '../domain/email-thread.ts';
 import { parseEnvelope } from '../domain/graph-envelopes.ts';
+import { extractAttachments } from '../domain/mail-attachments.ts';
+import type { AttachmentMeta } from '../domain/mail-attachments.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
 import type { RunId } from '../domain/run-id.ts';
@@ -28,6 +30,8 @@ type ManifestEntry = {
   readonly hasAttachments: boolean;
   readonly path: string;
   readonly status: 'converted' | 'failed';
+  readonly attachments: ReadonlyArray<AttachmentMeta>;
+  readonly attachmentsError?: string;
 };
 
 type Converted = { readonly entry: ManifestEntry; readonly markdown: string | undefined };
@@ -43,6 +47,29 @@ const threadArgs = (conversationId: string): ReadonlyArray<string> => [
 ];
 
 const markdownArgs = (messageId: string): ReadonlyArray<string> => ['convert-mail-to-markdown', '--message-id', messageId, '--inline-images', 'false', '--output', 'json'];
+
+const attachmentArgs = (messageId: string): ReadonlyArray<string> => [
+  'list-mail-attachments',
+  '--message-id',
+  messageId,
+  '--select',
+  'id,name,contentType,size,isInline',
+  '--output',
+  'json',
+];
+
+type ListedAttachments = { readonly attachments: ReadonlyArray<AttachmentMeta>; readonly error?: string };
+
+// A listing hiccup on one message must not sink the whole bundle: the failure is recorded, not thrown.
+const listAttachments = async (deps: Deps, message: ThreadMessage): Promise<ListedAttachments> => {
+  if (!message.hasAttachments) return { attachments: [] };
+  const run = await deps.runner.run('ask-marcel-office', attachmentArgs(message.id));
+  if (!run.ok) return { attachments: [], error: run.error.message };
+  if (run.value.exitCode !== 0) return { attachments: [], error: `exited ${run.value.exitCode}` };
+  const parsed = parseEnvelope(run.value.stdout);
+  if (!parsed.ok) return { attachments: [], error: parsed.error };
+  return { attachments: extractAttachments(parsed.value) };
+};
 
 const fetchThread = async (deps: Deps, conversationId: string): Promise<Result<ReadonlyArray<ThreadMessage>, BundleError>> => {
   const run = await deps.runner.run('ask-marcel-office', threadArgs(conversationId));
@@ -64,6 +91,7 @@ const readMarkdown = (run: Result<CommandOutput, RunError>): Result<string, stri
 const convertMessage = async (deps: Deps, message: ThreadMessage, order: number): Promise<Converted> => {
   const path = `messages/${String(order).padStart(2, '0')}-${message.id}.md`;
   const markdown = readMarkdown(await deps.runner.run('ask-marcel-office', markdownArgs(message.id)));
+  const listed = await listAttachments(deps, message);
   const entry: ManifestEntry = {
     order,
     messageId: message.id,
@@ -73,6 +101,8 @@ const convertMessage = async (deps: Deps, message: ThreadMessage, order: number)
     hasAttachments: message.hasAttachments,
     path,
     status: markdown.ok ? 'converted' : 'failed',
+    attachments: listed.attachments,
+    ...(listed.error !== undefined ? { attachmentsError: listed.error } : {}),
   };
   return { entry, markdown: markdown.ok ? markdown.value : undefined };
 };

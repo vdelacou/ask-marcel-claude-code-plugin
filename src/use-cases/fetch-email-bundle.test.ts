@@ -16,12 +16,18 @@ type Written = { readonly path: string; readonly content: string };
 
 type Setup = { readonly fetchBundle: FetchEmailBundle; readonly written: ReadonlyArray<Written>; readonly runnerLog: ReadonlyArray<string>; readonly logger: LoggerFake };
 
-type Overrides = { readonly convert?: Record<string, Result<CommandOutput, RunError>>; readonly failWrite?: (path: string) => boolean };
+type Overrides = {
+  readonly convert?: Record<string, Result<CommandOutput, RunError>>;
+  readonly attachments?: Record<string, Result<CommandOutput, RunError>>;
+  readonly failWrite?: (path: string) => boolean;
+};
 
 const threadEnvelope = (messages: ReadonlyArray<unknown>): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data: { value: messages } }), exitCode: 0 });
 
 const markdownEnvelope = (text: string): Result<CommandOutput, RunError> =>
   ok({ stdout: JSON.stringify({ ok: true, data: { contentType: 'text/markdown', size: text.length, text } }), exitCode: 0 });
+
+const attachmentsEnvelope = (list: ReadonlyArray<unknown>): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data: { value: list } }), exitCode: 0 });
 
 const setup = (thread: Result<CommandOutput, RunError>, markdownById: Record<string, string>, overrides: Overrides = {}): Setup => {
   const written: Written[] = [];
@@ -33,6 +39,7 @@ const setup = (thread: Result<CommandOutput, RunError>, markdownById: Record<str
         runnerLog.push([cmd, ...args].join(' '));
         if (args[0] === 'list-conversation-messages') return thread;
         const id = args[args.indexOf('--message-id') + 1];
+        if (args[0] === 'list-mail-attachments') return overrides.attachments?.[id] ?? attachmentsEnvelope([]);
         return overrides.convert?.[id] ?? markdownEnvelope(markdownById[id] ?? '');
       },
     },
@@ -74,11 +81,12 @@ describe('fetch-email-bundle', () => {
 
     const result = await fetchBundle({ runId: RUN_ID, emailId: 'msg-2', conversationId: 'conv-abc' });
 
-    // 1. correct CLI ladder: list the thread, then convert each message in chronological order
+    // 1. correct CLI ladder: list the thread, convert each message, and list attachments only for the one that has them
     expect(runnerLog).toEqual([
       'ask-marcel-office list-conversation-messages --conversation-id conv-abc --select id,subject,from,receivedDateTime,hasAttachments --output json',
       'ask-marcel-office convert-mail-to-markdown --message-id msg-1 --inline-images false --output json',
       'ask-marcel-office convert-mail-to-markdown --message-id msg-2 --inline-images false --output json',
+      'ask-marcel-office list-mail-attachments --message-id msg-1 --select id,name,contentType,size,isInline --output json',
     ]);
 
     // 2. each message written as markdown, numbered chronologically
@@ -101,6 +109,7 @@ describe('fetch-email-bundle', () => {
           hasAttachments: true,
           path: 'messages/01-msg-1.md',
           status: 'converted',
+          attachments: [],
         },
         {
           order: 2,
@@ -111,6 +120,7 @@ describe('fetch-email-bundle', () => {
           hasAttachments: false,
           path: 'messages/02-msg-2.md',
           status: 'converted',
+          attachments: [],
         },
       ],
     });
@@ -200,6 +210,7 @@ describe('fetch-email-bundle', () => {
       hasAttachments: false,
       path: 'messages/01-ok2.md',
       status: 'converted',
+      attachments: [],
     });
   });
 
@@ -216,5 +227,67 @@ describe('fetch-email-bundle', () => {
     const nullResult = await nonRecordData.fetchBundle(REQUEST);
     if (!nullResult.ok) throw new Error('expected ok');
     expect(nullResult.value.messageCount).toBe(0);
+  });
+
+  test('every message with attachments has its attachment metadata listed in the manifest; a message without is not queried', async () => {
+    const thread = [messageOf('msg-1', '2026-07-01T00:00:00Z', true), messageOf('msg-2', '2026-07-02T00:00:00Z', false)];
+    const attachments = {
+      'msg-1': attachmentsEnvelope([
+        { id: 'att-1', name: 'contract.pdf', contentType: 'application/pdf', size: 12345, isInline: false },
+        { id: 'att-2', name: 'logo.png', contentType: 'image/png', size: 678, isInline: true },
+      ]),
+    };
+    const { fetchBundle, written, runnerLog } = setup(threadEnvelope(thread), { 'msg-1': 'b1', 'msg-2': 'b2' }, { attachments });
+
+    const result = await fetchBundle(REQUEST);
+
+    // only the message that has attachments is queried
+    expect(runnerLog).toContain('ask-marcel-office list-mail-attachments --message-id msg-1 --select id,name,contentType,size,isInline --output json');
+    expect(runnerLog.some((call) => call.includes('list-mail-attachments --message-id msg-2'))).toBe(false);
+
+    // the manifest records each attachment's metadata, inline flag preserved
+    if (!result.ok) throw new Error('expected ok');
+    const messages = JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages;
+    expect(messages.find((message: { messageId: string }) => message.messageId === 'msg-1').attachments).toEqual([
+      { attachmentId: 'att-1', name: 'contract.pdf', contentType: 'application/pdf', size: 12345, isInline: false },
+      { attachmentId: 'att-2', name: 'logo.png', contentType: 'image/png', size: 678, isInline: true },
+    ]);
+    expect(messages.find((message: { messageId: string }) => message.messageId === 'msg-2').attachments).toEqual([]);
+  });
+
+  test('a failed attachment listing is recorded on the message without sinking the bundle', async () => {
+    const failModes: Record<string, Result<CommandOutput, RunError>> = {
+      'spawn error': err({ kind: 'spawn-failed', message: 'boom' }),
+      'non-zero exit': ok({ stdout: 'x', exitCode: 5 }),
+      'invalid json': ok({ stdout: 'nope', exitCode: 0 }),
+    };
+    const expectedError: Record<string, string> = { 'spawn error': 'boom', 'non-zero exit': 'exited 5', 'invalid json': 'invalid json' };
+
+    for (const [label, response] of Object.entries(failModes)) {
+      const { fetchBundle, written } = setup(threadEnvelope([messageOf('m1', '2026-07-01T00:00:00Z', true)]), { m1: 'body' }, { attachments: { m1: response } });
+      const result = await fetchBundle(REQUEST);
+      if (!result.ok) throw new Error(`expected ok for ${label}`);
+      const entry = JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages[0];
+      expect(entry.attachments).toEqual([]);
+      expect(entry.attachmentsError).toBe(expectedError[label]);
+    }
+  });
+
+  test('malformed attachment entries are skipped and missing fields fall back to defaults', async () => {
+    const list = [{ id: 'a1', name: 'doc.pdf', contentType: 'application/pdf', size: 10, isInline: false }, 'not-a-record', null, { name: 'no-id.png' }, { id: 'a2' }];
+    const { fetchBundle, written } = setup(threadEnvelope([messageOf('m1', '2026-07-01T00:00:00Z', true)]), { m1: 'body' }, { attachments: { m1: attachmentsEnvelope(list) } });
+
+    const result = await fetchBundle(REQUEST);
+
+    if (!result.ok) throw new Error('expected ok');
+    const attachments = JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages[0].attachments;
+    expect(attachments).toHaveLength(2);
+    expect(attachments.find((attachment: { attachmentId: string }) => attachment.attachmentId === 'a2')).toEqual({
+      attachmentId: 'a2',
+      name: '(unnamed)',
+      contentType: '',
+      size: 0,
+      isInline: false,
+    });
   });
 });
