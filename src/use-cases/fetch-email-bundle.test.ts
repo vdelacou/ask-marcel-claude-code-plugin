@@ -419,4 +419,48 @@ describe('fetch-email-bundle', () => {
       itemId: 'i3',
     });
   });
+
+  test('a thread in any language or mix of languages keeps its content verbatim and slugs filenames per script', async () => {
+    const thread = [
+      { id: 'm1', subject: '季度报告 — Q3 التقرير', from: { emailAddress: { address: 'wang@example.com' } }, receivedDateTime: '2026-07-01T00:00:00Z', hasAttachments: true },
+    ];
+    const body = '# 季度报告\n\nBonjour, هذا هو التقرير الفصلي. 请查收附件。';
+    const attachments = { m1: attachmentsEnvelope([{ id: 'att-1', name: 'التقرير.pdf', contentType: 'application/pdf', size: 100, isInline: false }]) };
+    const readAttachment = { 'att-1': markdownEnvelope('محتوى التقرير — 附件内容') };
+    const sharepointLinks = {
+      m1: sharepointEnvelope([{ url: 'https://x.sharepoint.com/r', driveId: 'd1', itemId: 'i1', name: '年度报告.docx', webUrl: 'https://x.sharepoint.com/年度报告' }]),
+    };
+    const { fetchBundle, written } = setup(threadEnvelope(thread), { m1: body }, { attachments, readAttachment, sharepointLinks });
+
+    const result = await fetchBundle(REQUEST);
+
+    if (!result.ok) throw new Error('expected ok');
+    // message body and attachment content are written verbatim, whatever the script or mix
+    expect(written.find((w) => w.path.endsWith('messages/01-m1.md'))?.content).toBe(body);
+    expect(written.find((w) => w.path === `data/scratch/${RUN_ID}/msg-2/bundle/attachments/01-01-التقرير-pdf.md`)?.content).toBe('محتوى التقرير — 附件内容');
+    // the manifest keeps original-language names; filenames slug per script (CJK/Arabic letters kept)
+    const entry = JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages[0];
+    expect(entry.subject).toBe('季度报告 — Q3 التقرير');
+    expect(entry.attachments[0]).toEqual({
+      attachmentId: 'att-1',
+      name: 'التقرير.pdf',
+      contentType: 'application/pdf',
+      size: 100,
+      isInline: false,
+      path: 'attachments/01-01-التقرير-pdf.md',
+      status: 'converted',
+    });
+    expect(entry.sharepointDocs[0]).toEqual({ url: 'https://x.sharepoint.com/r', name: '年度报告.docx', webUrl: 'https://x.sharepoint.com/年度报告', driveId: 'd1', itemId: 'i1' });
+  });
+
+  test('messages sharing a timestamp keep their original thread order', async () => {
+    const thread = [messageOf('first', '2026-07-01T00:00:00Z', false), messageOf('second', '2026-07-01T00:00:00Z', false)];
+    const { fetchBundle, written } = setup(threadEnvelope(thread), { first: 'a', second: 'b' });
+
+    const result = await fetchBundle(REQUEST);
+
+    if (!result.ok) throw new Error('expected ok');
+    const ids = JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages.map((message: { messageId: string }) => message.messageId);
+    expect(ids).toEqual(['first', 'second']);
+  });
 });

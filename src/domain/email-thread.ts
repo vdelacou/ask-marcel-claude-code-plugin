@@ -27,8 +27,8 @@ const toThreadMessage = (message: Record<string, unknown>): ThreadMessage | unde
 
 const isThreadMessage = (message: ThreadMessage | undefined): message is ThreadMessage => message !== undefined;
 
-// ISO-8601 instants sort chronologically under a lexical compare.
-const byReceivedAscending = (a: ThreadMessage, b: ThreadMessage): number => a.receivedDateTime.localeCompare(b.receivedDateTime);
+// ISO-8601 instants sort chronologically under a locale-independent code-point compare (no host-locale dependence).
+const byReceivedAscending = (a: ThreadMessage, b: ThreadMessage): number => Number(a.receivedDateTime > b.receivedDateTime) - Number(a.receivedDateTime < b.receivedDateTime);
 
 /** Conversation-thread envelope: `{ value: [message, …] }`, returned unordered by Graph → sorted chronologically here. */
 export const extractThreadMessages = (data: unknown): ReadonlyArray<ThreadMessage> => {
