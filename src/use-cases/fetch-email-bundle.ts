@@ -7,6 +7,7 @@ import type { AttachmentMeta } from '../domain/mail-attachments.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
 import type { RunId } from '../domain/run-id.ts';
+import { toSlug } from '../domain/slug.ts';
 import type { CommandOutput, CommandRunner, RunError } from './ports/command-runner.ts';
 import type { FileWriter, WriteError } from './ports/file-writer.ts';
 import type { Logger } from './ports/logger.ts';
@@ -21,6 +22,8 @@ export type FetchEmailBundle = (request: BundleRequest) => Promise<Result<Bundle
 
 type Deps = { readonly runner: CommandRunner; readonly writer: FileWriter; readonly logger: Logger };
 
+type AttachmentArtifact = AttachmentMeta & { readonly path?: string; readonly status: 'converted' | 'failed' };
+
 type ManifestEntry = {
   readonly order: number;
   readonly messageId: string;
@@ -30,11 +33,15 @@ type ManifestEntry = {
   readonly hasAttachments: boolean;
   readonly path: string;
   readonly status: 'converted' | 'failed';
-  readonly attachments: ReadonlyArray<AttachmentMeta>;
+  readonly attachments: ReadonlyArray<AttachmentArtifact>;
   readonly attachmentsError?: string;
 };
 
-type Converted = { readonly entry: ManifestEntry; readonly markdown: string | undefined };
+type FileToWrite = { readonly path: string; readonly content: string };
+
+type Converted = { readonly entry: ManifestEntry; readonly files: ReadonlyArray<FileToWrite> };
+
+const pad = (value: number): string => String(value).padStart(2, '0');
 
 const threadArgs = (conversationId: string): ReadonlyArray<string> => [
   'list-conversation-messages',
@@ -58,6 +65,33 @@ const attachmentArgs = (messageId: string): ReadonlyArray<string> => [
   'json',
 ];
 
+const readAttachmentArgs = (messageId: string, attachmentId: string): ReadonlyArray<string> => [
+  'read-mail-attachment',
+  '--message-id',
+  messageId,
+  '--attachment-id',
+  attachmentId,
+  '--output',
+  'json',
+];
+
+const readMarkdown = (run: Result<CommandOutput, RunError>): Result<string, string> => {
+  if (!run.ok) return err(run.error.message);
+  if (run.value.exitCode !== 0) return err(`exited ${run.value.exitCode}`);
+  const parsed = parseEnvelope(run.value.stdout);
+  if (!parsed.ok) return err(parsed.error);
+  return extractMarkdown(parsed.value);
+};
+
+const fetchThread = async (deps: Deps, conversationId: string): Promise<Result<ReadonlyArray<ThreadMessage>, BundleError>> => {
+  const run = await deps.runner.run('ask-marcel-office', threadArgs(conversationId));
+  if (!run.ok) return err({ kind: 'thread-fetch-failed', message: run.error.message });
+  if (run.value.exitCode !== 0) return err({ kind: 'thread-fetch-failed', message: `exited ${run.value.exitCode}` });
+  const parsed = parseEnvelope(run.value.stdout);
+  if (!parsed.ok) return err({ kind: 'thread-fetch-failed', message: parsed.error });
+  return ok(extractThreadMessages(parsed.value));
+};
+
 type ListedAttachments = { readonly attachments: ReadonlyArray<AttachmentMeta>; readonly error?: string };
 
 // A listing hiccup on one message must not sink the whole bundle: the failure is recorded, not thrown.
@@ -71,27 +105,23 @@ const listAttachments = async (deps: Deps, message: ThreadMessage): Promise<List
   return { attachments: extractAttachments(parsed.value) };
 };
 
-const fetchThread = async (deps: Deps, conversationId: string): Promise<Result<ReadonlyArray<ThreadMessage>, BundleError>> => {
-  const run = await deps.runner.run('ask-marcel-office', threadArgs(conversationId));
-  if (!run.ok) return err({ kind: 'thread-fetch-failed', message: run.error.message });
-  if (run.value.exitCode !== 0) return err({ kind: 'thread-fetch-failed', message: `exited ${run.value.exitCode}` });
-  const parsed = parseEnvelope(run.value.stdout);
-  if (!parsed.ok) return err({ kind: 'thread-fetch-failed', message: parsed.error });
-  return ok(extractThreadMessages(parsed.value));
+type RenderedAttachment = { readonly artifact: AttachmentArtifact; readonly file?: FileToWrite };
+
+// Images and scanned PDFs come back as a CLI api_error; contentType on the artifact already says why, so status alone suffices.
+const convertAttachment = async (deps: Deps, messageId: string, messageOrder: number, meta: AttachmentMeta, index: number): Promise<RenderedAttachment> => {
+  const markdown = readMarkdown(await deps.runner.run('ask-marcel-office', readAttachmentArgs(messageId, meta.attachmentId)));
+  if (!markdown.ok) return { artifact: { ...meta, status: 'failed' } };
+  const path = `attachments/${pad(messageOrder)}-${pad(index + 1)}-${toSlug(meta.name)}.md`;
+  return { artifact: { ...meta, path, status: 'converted' }, file: { path, content: markdown.value } };
 };
 
-const readMarkdown = (run: Result<CommandOutput, RunError>): Result<string, string> => {
-  if (!run.ok) return err(run.error.message);
-  if (run.value.exitCode !== 0) return err(`exited ${run.value.exitCode}`);
-  const parsed = parseEnvelope(run.value.stdout);
-  if (!parsed.ok) return err(parsed.error);
-  return extractMarkdown(parsed.value);
-};
+const definedFile = (file: FileToWrite | undefined): file is FileToWrite => file !== undefined;
 
 const convertMessage = async (deps: Deps, message: ThreadMessage, order: number): Promise<Converted> => {
-  const path = `messages/${String(order).padStart(2, '0')}-${message.id}.md`;
+  const bodyPath = `messages/${pad(order)}-${message.id}.md`;
   const markdown = readMarkdown(await deps.runner.run('ask-marcel-office', markdownArgs(message.id)));
   const listed = await listAttachments(deps, message);
+  const rendered = await Promise.all(listed.attachments.map((meta, index) => convertAttachment(deps, message.id, order, meta, index)));
   const entry: ManifestEntry = {
     order,
     messageId: message.id,
@@ -99,19 +129,22 @@ const convertMessage = async (deps: Deps, message: ThreadMessage, order: number)
     from: message.fromAddress,
     receivedDateTime: message.receivedDateTime,
     hasAttachments: message.hasAttachments,
-    path,
+    path: bodyPath,
     status: markdown.ok ? 'converted' : 'failed',
-    attachments: listed.attachments,
+    attachments: rendered.map((item) => item.artifact),
     ...(listed.error !== undefined ? { attachmentsError: listed.error } : {}),
   };
-  return { entry, markdown: markdown.ok ? markdown.value : undefined };
+  const bodyFile = markdown.ok ? [{ path: bodyPath, content: markdown.value }] : [];
+  const files = [...bodyFile, ...rendered.map((item) => item.file).filter(definedFile)];
+  return { entry, files };
 };
 
-const writeMarkdownFiles = async (writer: FileWriter, bundleDir: string, converted: ReadonlyArray<Converted>): Promise<Result<void, WriteError>> => {
-  for (const { entry, markdown } of converted) {
-    if (markdown === undefined) continue;
-    const written = await writer.write(`${bundleDir}/${entry.path}`, markdown);
-    if (!written.ok) return err(written.error);
+const writeFiles = async (writer: FileWriter, bundleDir: string, converted: ReadonlyArray<Converted>): Promise<Result<void, WriteError>> => {
+  for (const { files } of converted) {
+    for (const file of files) {
+      const written = await writer.write(`${bundleDir}/${file.path}`, file.content);
+      if (!written.ok) return err(written.error);
+    }
   }
   return ok(undefined);
 };
@@ -123,9 +156,9 @@ export const createFetchEmailBundle =
     if (!thread.ok) return err(thread.error);
     const converted = await Promise.all(thread.value.map((message, index) => convertMessage(deps, message, index + 1)));
     const bundleDir = `data/scratch/${request.runId}/${emailIdSegment(request.emailId)}/bundle`;
-    const filesWritten = await writeMarkdownFiles(deps.writer, bundleDir, converted);
+    const filesWritten = await writeFiles(deps.writer, bundleDir, converted);
     if (!filesWritten.ok) return err(filesWritten.error);
-    const manifest = { emailId: request.emailId, conversationId: request.conversationId, messages: converted.map((entry) => entry.entry) };
+    const manifest = { emailId: request.emailId, conversationId: request.conversationId, messages: converted.map((item) => item.entry) };
     const manifestWritten = await deps.writer.write(`${bundleDir}/manifest.json`, JSON.stringify(manifest, null, 2));
     if (!manifestWritten.ok) return err(manifestWritten.error);
     deps.logger.info('bundle-fetched', { emailId: request.emailId, messageCount: converted.length });

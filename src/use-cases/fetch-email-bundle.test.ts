@@ -19,6 +19,7 @@ type Setup = { readonly fetchBundle: FetchEmailBundle; readonly written: Readonl
 type Overrides = {
   readonly convert?: Record<string, Result<CommandOutput, RunError>>;
   readonly attachments?: Record<string, Result<CommandOutput, RunError>>;
+  readonly readAttachment?: Record<string, Result<CommandOutput, RunError>>;
   readonly failWrite?: (path: string) => boolean;
 };
 
@@ -40,6 +41,7 @@ const setup = (thread: Result<CommandOutput, RunError>, markdownById: Record<str
         if (args[0] === 'list-conversation-messages') return thread;
         const id = args[args.indexOf('--message-id') + 1];
         if (args[0] === 'list-mail-attachments') return overrides.attachments?.[id] ?? attachmentsEnvelope([]);
+        if (args[0] === 'read-mail-attachment') return overrides.readAttachment?.[args[args.indexOf('--attachment-id') + 1]] ?? markdownEnvelope('');
         return overrides.convert?.[id] ?? markdownEnvelope(markdownById[id] ?? '');
       },
     },
@@ -237,7 +239,8 @@ describe('fetch-email-bundle', () => {
         { id: 'att-2', name: 'logo.png', contentType: 'image/png', size: 678, isInline: true },
       ]),
     };
-    const { fetchBundle, written, runnerLog } = setup(threadEnvelope(thread), { 'msg-1': 'b1', 'msg-2': 'b2' }, { attachments });
+    const readAttachment = { 'att-1': markdownEnvelope('contract body'), 'att-2': markdownEnvelope('logo alt text') };
+    const { fetchBundle, written, runnerLog } = setup(threadEnvelope(thread), { 'msg-1': 'b1', 'msg-2': 'b2' }, { attachments, readAttachment });
 
     const result = await fetchBundle(REQUEST);
 
@@ -249,8 +252,8 @@ describe('fetch-email-bundle', () => {
     if (!result.ok) throw new Error('expected ok');
     const messages = JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages;
     expect(messages.find((message: { messageId: string }) => message.messageId === 'msg-1').attachments).toEqual([
-      { attachmentId: 'att-1', name: 'contract.pdf', contentType: 'application/pdf', size: 12345, isInline: false },
-      { attachmentId: 'att-2', name: 'logo.png', contentType: 'image/png', size: 678, isInline: true },
+      { attachmentId: 'att-1', name: 'contract.pdf', contentType: 'application/pdf', size: 12345, isInline: false, path: 'attachments/01-01-contract-pdf.md', status: 'converted' },
+      { attachmentId: 'att-2', name: 'logo.png', contentType: 'image/png', size: 678, isInline: true, path: 'attachments/01-02-logo-png.md', status: 'converted' },
     ]);
     expect(messages.find((message: { messageId: string }) => message.messageId === 'msg-2').attachments).toEqual([]);
   });
@@ -275,7 +278,11 @@ describe('fetch-email-bundle', () => {
 
   test('malformed attachment entries are skipped and missing fields fall back to defaults', async () => {
     const list = [{ id: 'a1', name: 'doc.pdf', contentType: 'application/pdf', size: 10, isInline: false }, 'not-a-record', null, { name: 'no-id.png' }, { id: 'a2' }];
-    const { fetchBundle, written } = setup(threadEnvelope([messageOf('m1', '2026-07-01T00:00:00Z', true)]), { m1: 'body' }, { attachments: { m1: attachmentsEnvelope(list) } });
+    const { fetchBundle, written } = setup(
+      threadEnvelope([messageOf('m1', '2026-07-01T00:00:00Z', true)]),
+      { m1: 'body' },
+      { attachments: { m1: attachmentsEnvelope(list) }, readAttachment: { a2: markdownEnvelope('a2 body') } }
+    );
 
     const result = await fetchBundle(REQUEST);
 
@@ -288,6 +295,51 @@ describe('fetch-email-bundle', () => {
       contentType: '',
       size: 0,
       isInline: false,
+      path: 'attachments/01-02-unnamed.md',
+      status: 'converted',
+    });
+  });
+
+  test('each listed attachment is converted to markdown, written to the bundle, and marked converted or failed', async () => {
+    const thread = [messageOf('m1', '2026-07-01T00:00:00Z', true)];
+    const attachments = {
+      m1: attachmentsEnvelope([
+        { id: 'att-1', name: 'contract.pdf', contentType: 'application/pdf', size: 10, isInline: false },
+        { id: 'att-2', name: 'photo.png', contentType: 'image/png', size: 20, isInline: true },
+      ]),
+    };
+    const readAttachment = {
+      'att-1': markdownEnvelope('# Contract\n\nterms'),
+      'att-2': ok({ stdout: JSON.stringify({ ok: false, error: 'unsupported image (415)' }), exitCode: 0 }),
+    };
+    const { fetchBundle, written, runnerLog } = setup(threadEnvelope(thread), { m1: 'body' }, { attachments, readAttachment });
+
+    const result = await fetchBundle(REQUEST);
+
+    // every listed attachment is read by id
+    expect(runnerLog).toContain('ask-marcel-office read-mail-attachment --message-id m1 --attachment-id att-1 --output json');
+    expect(runnerLog).toContain('ask-marcel-office read-mail-attachment --message-id m1 --attachment-id att-2 --output json');
+
+    if (!result.ok) throw new Error('expected ok');
+    // the converted attachment's markdown lands in the bundle; the image writes no file
+    expect(written.find((w) => w.path === `data/scratch/${RUN_ID}/msg-2/bundle/attachments/01-01-contract-pdf.md`)?.content).toBe('# Contract\n\nterms');
+    expect(written.some((w) => w.path.endsWith('01-02-photo-png.md'))).toBe(false);
+    // the manifest records path + status per attachment
+    expect(JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages[0].attachments).toEqual([
+      { attachmentId: 'att-1', name: 'contract.pdf', contentType: 'application/pdf', size: 10, isInline: false, path: 'attachments/01-01-contract-pdf.md', status: 'converted' },
+      { attachmentId: 'att-2', name: 'photo.png', contentType: 'image/png', size: 20, isInline: true, status: 'failed' },
+    ]);
+  });
+
+  test('a failed write of a converted attachment surfaces as a typed error', async () => {
+    const thread = [messageOf('m1', '2026-07-01T00:00:00Z', true)];
+    const attachments = { m1: attachmentsEnvelope([{ id: 'att-1', name: 'contract.pdf', contentType: 'application/pdf', size: 10, isInline: false }]) };
+    const readAttachment = { 'att-1': markdownEnvelope('contract body') };
+    const { fetchBundle } = setup(threadEnvelope(thread), { m1: 'body' }, { attachments, readAttachment, failWrite: (path) => path.includes('/attachments/') });
+
+    expect(await fetchBundle(REQUEST)).toEqual({
+      ok: false,
+      error: { kind: 'write-failed', path: `data/scratch/${RUN_ID}/msg-2/bundle/attachments/01-01-contract-pdf.md`, message: 'disk full' },
     });
   });
 });
