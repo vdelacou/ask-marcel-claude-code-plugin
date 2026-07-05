@@ -16,11 +16,14 @@ type Written = { readonly path: string; readonly content: string };
 
 type Setup = { readonly fetchBundle: FetchEmailBundle; readonly written: ReadonlyArray<Written>; readonly runnerLog: ReadonlyArray<string>; readonly logger: LoggerFake };
 
-type Overrides = { readonly failWrite?: (path: string) => boolean };
+type Overrides = { readonly convert?: Record<string, Result<CommandOutput, RunError>>; readonly failWrite?: (path: string) => boolean };
 
 const threadEnvelope = (messages: ReadonlyArray<unknown>): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data: { value: messages } }), exitCode: 0 });
 
-const setup = (thread: Result<CommandOutput, RunError>, overrides: Overrides = {}): Setup => {
+const markdownEnvelope = (text: string): Result<CommandOutput, RunError> =>
+  ok({ stdout: JSON.stringify({ ok: true, data: { contentType: 'text/markdown', size: text.length, text } }), exitCode: 0 });
+
+const setup = (thread: Result<CommandOutput, RunError>, markdownById: Record<string, string>, overrides: Overrides = {}): Setup => {
   const written: Written[] = [];
   const runnerLog: string[] = [];
   const logger = createLoggerFake();
@@ -28,7 +31,9 @@ const setup = (thread: Result<CommandOutput, RunError>, overrides: Overrides = {
     runner: {
       run: async (cmd, args) => {
         runnerLog.push([cmd, ...args].join(' '));
-        return thread;
+        if (args[0] === 'list-conversation-messages') return thread;
+        const id = args[args.indexOf('--message-id') + 1];
+        return overrides.convert?.[id] ?? markdownEnvelope(markdownById[id] ?? '');
       },
     },
     writer: {
@@ -51,8 +56,8 @@ const messageOf = (id: string, receivedDateTime: string, hasAttachments: boolean
   hasAttachments,
 });
 
-describe('fetch-email-bundle: thread membership', () => {
-  test('researching an approved email lists the whole conversation and manifests every message in chronological order', async () => {
+describe('fetch-email-bundle', () => {
+  test('researching an approved email pulls its whole thread, writes each message as markdown, and manifests them in chronological order', async () => {
     // thread comes back UNORDERED (reply before original) to prove client-side chronological sort
     const thread = [
       { id: 'msg-2', subject: 'RE: Q3 envelope', from: { emailAddress: { name: 'Jane', address: 'Jane@X.com' } }, receivedDateTime: '2026-07-02T10:00:00Z', hasAttachments: false },
@@ -64,46 +69,105 @@ describe('fetch-email-bundle: thread membership', () => {
         hasAttachments: true,
       },
     ];
-    const { fetchBundle, written, runnerLog, logger } = setup(threadEnvelope(thread));
+    const markdown = { 'msg-1': '**Subject:** Q3 envelope\n\nOriginal body', 'msg-2': '**Subject:** RE: Q3 envelope\n\nReply body' };
+    const { fetchBundle, written, runnerLog, logger } = setup(threadEnvelope(thread), markdown);
 
-    const result = await fetchBundle(REQUEST);
+    const result = await fetchBundle({ runId: RUN_ID, emailId: 'msg-2', conversationId: 'conv-abc' });
 
-    // the whole thread is listed with one Graph call
-    expect(runnerLog).toEqual(['ask-marcel-office list-conversation-messages --conversation-id conv-abc --select id,subject,from,receivedDateTime,hasAttachments --output json']);
+    // 1. correct CLI ladder: list the thread, then convert each message in chronological order
+    expect(runnerLog).toEqual([
+      'ask-marcel-office list-conversation-messages --conversation-id conv-abc --select id,subject,from,receivedDateTime,hasAttachments --output json',
+      'ask-marcel-office convert-mail-to-markdown --message-id msg-1 --inline-images false --output json',
+      'ask-marcel-office convert-mail-to-markdown --message-id msg-2 --inline-images false --output json',
+    ]);
 
-    // the manifest names every message, chronological, sender lowercased
+    // 2. each message written as markdown, numbered chronologically
+    expect(written.find((w) => w.path === `data/scratch/${RUN_ID}/msg-2/bundle/messages/01-msg-1.md`)?.content).toBe('**Subject:** Q3 envelope\n\nOriginal body');
+    expect(written.find((w) => w.path === `data/scratch/${RUN_ID}/msg-2/bundle/messages/02-msg-2.md`)?.content).toBe('**Subject:** RE: Q3 envelope\n\nReply body');
+
+    // 3. manifest lists every artifact + conversion status, bundle-relative paths, no silent failures
     const manifestFile = written.find((w) => w.path === `data/scratch/${RUN_ID}/msg-2/bundle/manifest.json`);
     if (manifestFile === undefined) throw new Error('manifest.json not written');
     expect(JSON.parse(manifestFile.content)).toEqual({
       emailId: 'msg-2',
       conversationId: 'conv-abc',
       messages: [
-        { order: 1, messageId: 'msg-1', subject: 'Q3 envelope', from: 'v@example.com', receivedDateTime: '2026-07-01T09:00:00Z', hasAttachments: true },
-        { order: 2, messageId: 'msg-2', subject: 'RE: Q3 envelope', from: 'jane@x.com', receivedDateTime: '2026-07-02T10:00:00Z', hasAttachments: false },
+        {
+          order: 1,
+          messageId: 'msg-1',
+          subject: 'Q3 envelope',
+          from: 'v@example.com',
+          receivedDateTime: '2026-07-01T09:00:00Z',
+          hasAttachments: true,
+          path: 'messages/01-msg-1.md',
+          status: 'converted',
+        },
+        {
+          order: 2,
+          messageId: 'msg-2',
+          subject: 'RE: Q3 envelope',
+          from: 'jane@x.com',
+          receivedDateTime: '2026-07-02T10:00:00Z',
+          hasAttachments: false,
+          path: 'messages/02-msg-2.md',
+          status: 'converted',
+        },
       ],
     });
 
-    // compact summary for the researcher orchestration, and the run is logged
+    // 4. compact summary handed back to the researcher orchestration, and the run is logged
     if (!result.ok) throw new Error('expected ok');
     expect(result.value).toEqual({ emailId: 'msg-2', conversationId: 'conv-abc', messageCount: 2, threadHasAttachments: true });
     expect(logger.calls).toEqual([{ level: 'info', event: 'bundle-fetched', meta: { emailId: 'msg-2', messageCount: 2 } }]);
   });
 
   test('an IO failure at any step surfaces as a typed error, never a crash', async () => {
-    const spawnFailed = setup(err({ kind: 'spawn-failed', message: 'EPERM' }));
+    const spawnFailed = setup(err({ kind: 'spawn-failed', message: 'EPERM' }), {});
     expect(await spawnFailed.fetchBundle(REQUEST)).toEqual({ ok: false, error: { kind: 'thread-fetch-failed', message: 'EPERM' } });
 
-    const nonZeroExit = setup(ok({ stdout: 'x', exitCode: 2 }));
+    const nonZeroExit = setup(ok({ stdout: 'x', exitCode: 2 }), {});
     expect(await nonZeroExit.fetchBundle(REQUEST)).toEqual({ ok: false, error: { kind: 'thread-fetch-failed', message: 'exited 2' } });
 
-    const badJson = setup(ok({ stdout: 'not json', exitCode: 0 }));
+    const badJson = setup(ok({ stdout: 'not json', exitCode: 0 }), {});
     expect(await badJson.fetchBundle(REQUEST)).toEqual({ ok: false, error: { kind: 'thread-fetch-failed', message: 'invalid json' } });
 
-    const manifestWriteFails = setup(threadEnvelope([messageOf('m', '2026-07-01T00:00:00Z', false)]), { failWrite: (path) => path.endsWith('manifest.json') });
+    // a message-file write and the manifest write each surface as write-failed
+    const oneMessage = [messageOf('m', '2026-07-01T00:00:00Z', false)];
+    const messageWriteFails = setup(threadEnvelope(oneMessage), { m: 'body' }, { failWrite: (path) => path.endsWith('.md') });
+    expect(await messageWriteFails.fetchBundle(REQUEST)).toEqual({
+      ok: false,
+      error: { kind: 'write-failed', path: `data/scratch/${RUN_ID}/msg-2/bundle/messages/01-m.md`, message: 'disk full' },
+    });
+
+    const manifestWriteFails = setup(threadEnvelope(oneMessage), { m: 'body' }, { failWrite: (path) => path.endsWith('manifest.json') });
     expect(await manifestWriteFails.fetchBundle(REQUEST)).toEqual({
       ok: false,
       error: { kind: 'write-failed', path: `data/scratch/${RUN_ID}/msg-2/bundle/manifest.json`, message: 'disk full' },
     });
+  });
+
+  test('a message that fails to convert is manifested as failed and writes no file, while the rest still bundle', async () => {
+    const thread = [messageOf('m1', '2026-07-01T00:00:00Z', false), messageOf('m2', '2026-07-02T00:00:00Z', false)];
+    const failModes: Record<string, Result<CommandOutput, RunError>> = {
+      'spawn error': err({ kind: 'spawn-failed', message: 'boom' }),
+      'non-zero exit': ok({ stdout: 'x', exitCode: 3 }),
+      'invalid json': ok({ stdout: 'nope', exitCode: 0 }),
+      'data not a record': ok({ stdout: JSON.stringify({ ok: true, data: 'oops' }), exitCode: 0 }),
+      'missing text': ok({ stdout: JSON.stringify({ ok: true, data: { contentType: 'text/markdown', size: 0 } }), exitCode: 0 }),
+    };
+
+    for (const [label, response] of Object.entries(failModes)) {
+      const { fetchBundle, written } = setup(threadEnvelope(thread), { m1: 'good body' }, { convert: { m2: response } });
+      const result = await fetchBundle(REQUEST);
+      if (!result.ok) throw new Error(`expected ok for ${label}`);
+      expect(result.value.threadHasAttachments).toBe(false);
+      const manifestFile = written.find((w) => w.path.endsWith('manifest.json'));
+      if (manifestFile === undefined) throw new Error(`manifest not written for ${label}`);
+      const statuses = JSON.parse(manifestFile.content).messages.map((message: { status: string }) => message.status);
+      expect(statuses).toEqual(['converted', 'failed']);
+      expect(written.some((w) => w.path.endsWith('01-m1.md'))).toBe(true);
+      expect(written.some((w) => w.path.endsWith('02-m2.md'))).toBe(false);
+    }
   });
 
   test('malformed thread entries are skipped and missing fields fall back to defaults', async () => {
@@ -116,7 +180,7 @@ describe('fetch-email-bundle: thread membership', () => {
       { from: { emailAddress: { address: 'z@z.com' } }, subject: 'sender-but-no-id' },
       { id: 'ok2', from: { emailAddress: { address: 'C@D.com' } }, hasAttachments: false },
     ];
-    const { fetchBundle, written } = setup(threadEnvelope(thread));
+    const { fetchBundle, written } = setup(threadEnvelope(thread), { ok1: 'b1', ok2: 'b2' });
 
     const result = await fetchBundle(REQUEST);
 
@@ -127,11 +191,20 @@ describe('fetch-email-bundle: thread membership', () => {
     const messages = JSON.parse(manifestFile.content).messages;
     expect(messages).toHaveLength(2);
     const defaulted = messages.find((message: { messageId: string }) => message.messageId === 'ok2');
-    expect(defaulted).toEqual({ order: 1, messageId: 'ok2', subject: '(no subject)', from: 'c@d.com', receivedDateTime: '', hasAttachments: false });
+    expect(defaulted).toEqual({
+      order: 1,
+      messageId: 'ok2',
+      subject: '(no subject)',
+      from: 'c@d.com',
+      receivedDateTime: '',
+      hasAttachments: false,
+      path: 'messages/01-ok2.md',
+      status: 'converted',
+    });
   });
 
   test('a conversation with no recognizable messages yields an empty bundle, not a crash', async () => {
-    const noValueArray = setup(ok({ stdout: JSON.stringify({ ok: true, data: {} }), exitCode: 0 }));
+    const noValueArray = setup(ok({ stdout: JSON.stringify({ ok: true, data: {} }), exitCode: 0 }), {});
     const emptyResult = await noValueArray.fetchBundle(REQUEST);
     if (!emptyResult.ok) throw new Error('expected ok');
     expect(emptyResult.value).toEqual({ emailId: 'msg-2', conversationId: 'conv-abc', messageCount: 0, threadHasAttachments: false });
@@ -139,7 +212,7 @@ describe('fetch-email-bundle: thread membership', () => {
     if (manifestFile === undefined) throw new Error('manifest not written');
     expect(JSON.parse(manifestFile.content).messages).toEqual([]);
 
-    const nonRecordData = setup(ok({ stdout: JSON.stringify({ ok: true, data: null }), exitCode: 0 }));
+    const nonRecordData = setup(ok({ stdout: JSON.stringify({ ok: true, data: null }), exitCode: 0 }), {});
     const nullResult = await nonRecordData.fetchBundle(REQUEST);
     if (!nullResult.ok) throw new Error('expected ok');
     expect(nullResult.value.messageCount).toBe(0);

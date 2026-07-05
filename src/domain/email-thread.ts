@@ -1,4 +1,6 @@
 import { asString, isRecord } from './graph-envelopes.ts';
+import { err, ok } from './result.ts';
+import type { Result } from './result.ts';
 
 export type ThreadMessage = {
   readonly id: string;
@@ -32,4 +34,12 @@ const byReceivedAscending = (a: ThreadMessage, b: ThreadMessage): number => a.re
 export const extractThreadMessages = (data: unknown): ReadonlyArray<ThreadMessage> => {
   if (!isRecord(data) || !Array.isArray(data['value'])) return [];
   return data['value'].filter(isRecord).map(toThreadMessage).filter(isThreadMessage).sort(byReceivedAscending);
+};
+
+/** convert-mail-to-markdown envelope: `{ contentType, size, text, note? }` — the rendered body lives in `text`. */
+export const extractMarkdown = (data: unknown): Result<string, string> => {
+  if (!isRecord(data)) return err('markdown: unexpected shape');
+  const text = asString(data['text']);
+  if (text === undefined) return err('markdown: missing text');
+  return ok(text);
 };
