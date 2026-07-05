@@ -49,3 +49,7 @@ The pre-commit mutation gate mutates every staged domain/use-case file. A 3-file
 ## [decision] 2026-07-05 | fetch-email-bundle split by metadata-vs-rendering seam
 
 The use-case plus its mutation-complete tests came to 377 lines, over the 300-line commit gate, and email-thread.ts is classicist-tested only through the use-case (no dedicated test), so it cannot land in its own commit. Split the feature by behaviour seam, not file type: B1 = thread-membership metadata manifest (list-conversation-messages -> chronological manifest), B2 = per-message markdown rendering (convert-mail-to-markdown -> path + status). The coming attachments and SharePoint slices of fetch-email-bundle will exceed 300 the same way — pre-plan their seams when proposing the tests.
+
+## [gotcha] 2026-07-05 | empty conversion output renders as status 'failed'
+
+`asString('')` returns undefined (it treats '' as absent), so `extractMarkdown` on a convert-mail-to-markdown / read-mail-attachment response whose `text` is `''` returns an err, and the bundle marks that message body or attachment `status: 'failed'` with no file written. Real behaviour, not a bug — an empty render is treated as no content. When a test needs a 'converted' outcome, feed non-empty markdown; empty-string fixtures surface as 'failed' (cost 3 test failures to spot).
