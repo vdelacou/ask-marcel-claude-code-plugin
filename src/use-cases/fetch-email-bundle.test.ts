@@ -21,6 +21,7 @@ type Overrides = {
   readonly attachments?: Record<string, Result<CommandOutput, RunError>>;
   readonly readAttachment?: Record<string, Result<CommandOutput, RunError>>;
   readonly sharepointLinks?: Record<string, Result<CommandOutput, RunError>>;
+  readonly getAttachment?: Record<string, Result<CommandOutput, RunError>>;
   readonly failWrite?: (path: string) => boolean;
 };
 
@@ -32,6 +33,8 @@ const markdownEnvelope = (text: string): Result<CommandOutput, RunError> =>
 const attachmentsEnvelope = (list: ReadonlyArray<unknown>): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data: { value: list } }), exitCode: 0 });
 
 const sharepointEnvelope = (links: ReadonlyArray<unknown>): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data: { links } }), exitCode: 0 });
+
+const savedEnvelope = (): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data: { savedTo: 'saved' } }), exitCode: 0 });
 
 const setup = (thread: Result<CommandOutput, RunError>, markdownById: Record<string, string>, overrides: Overrides = {}): Setup => {
   const written: Written[] = [];
@@ -46,6 +49,7 @@ const setup = (thread: Result<CommandOutput, RunError>, markdownById: Record<str
         if (args[0] === 'list-mail-attachments') return overrides.attachments?.[id] ?? attachmentsEnvelope([]);
         if (args[0] === 'read-mail-attachment') return overrides.readAttachment?.[args[args.indexOf('--attachment-id') + 1]] ?? markdownEnvelope('');
         if (args[0] === 'extract-sharepoint-links-in-mail') return overrides.sharepointLinks?.[id] ?? sharepointEnvelope([]);
+        if (args[0] === 'get-mail-attachment') return overrides.getAttachment?.[args[args.indexOf('--attachment-id') + 1]] ?? savedEnvelope();
         return overrides.convert?.[id] ?? markdownEnvelope(markdownById[id] ?? '');
       },
     },
@@ -262,7 +266,7 @@ describe('fetch-email-bundle', () => {
     const messages = JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages;
     expect(messages.find((message: { messageId: string }) => message.messageId === 'msg-1').attachments).toEqual([
       { attachmentId: 'att-1', name: 'contract.pdf', contentType: 'application/pdf', size: 12345, isInline: false, path: 'attachments/01-01-contract-pdf.md', status: 'converted' },
-      { attachmentId: 'att-2', name: 'logo.png', contentType: 'image/png', size: 678, isInline: true, path: 'attachments/01-02-logo-png.md', status: 'converted' },
+      { attachmentId: 'att-2', name: 'logo.png', contentType: 'image/png', size: 678, isInline: true, path: 'images/01-02-logo.png', status: 'image' },
     ]);
     expect(messages.find((message: { messageId: string }) => message.messageId === 'msg-2').attachments).toEqual([]);
   });
@@ -314,29 +318,36 @@ describe('fetch-email-bundle', () => {
     const attachments = {
       m1: attachmentsEnvelope([
         { id: 'att-1', name: 'contract.pdf', contentType: 'application/pdf', size: 10, isInline: false },
-        { id: 'att-2', name: 'photo.png', contentType: 'image/png', size: 20, isInline: true },
+        { id: 'att-2', name: 'notes.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', size: 20, isInline: false },
       ]),
     };
     const readAttachment = {
       'att-1': markdownEnvelope('# Contract\n\nterms'),
-      'att-2': ok({ stdout: JSON.stringify({ ok: false, error: 'unsupported image (415)' }), exitCode: 0 }),
+      'att-2': ok({ stdout: JSON.stringify({ ok: false, error: 'conversion failed' }), exitCode: 0 }),
     };
     const { fetchBundle, written, runnerLog } = setup(threadEnvelope(thread), { m1: 'body' }, { attachments, readAttachment });
 
     const result = await fetchBundle(REQUEST);
 
-    // every listed attachment is read by id
+    // every listed document is read by id
     expect(runnerLog).toContain('ask-marcel-office read-mail-attachment --message-id m1 --attachment-id att-1 --output json');
     expect(runnerLog).toContain('ask-marcel-office read-mail-attachment --message-id m1 --attachment-id att-2 --output json');
 
     if (!result.ok) throw new Error('expected ok');
-    // the converted attachment's markdown lands in the bundle; the image writes no file
+    // the converted document's markdown lands in the bundle; the failed one writes no file
     expect(written.find((w) => w.path === `data/scratch/${RUN_ID}/msg-2/bundle/attachments/01-01-contract-pdf.md`)?.content).toBe('# Contract\n\nterms');
-    expect(written.some((w) => w.path.endsWith('01-02-photo-png.md'))).toBe(false);
+    expect(written.some((w) => w.path.endsWith('01-02-notes-docx.md'))).toBe(false);
     // the manifest records path + status per attachment
     expect(JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages[0].attachments).toEqual([
       { attachmentId: 'att-1', name: 'contract.pdf', contentType: 'application/pdf', size: 10, isInline: false, path: 'attachments/01-01-contract-pdf.md', status: 'converted' },
-      { attachmentId: 'att-2', name: 'photo.png', contentType: 'image/png', size: 20, isInline: true, status: 'failed' },
+      {
+        attachmentId: 'att-2',
+        name: 'notes.docx',
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        size: 20,
+        isInline: false,
+        status: 'failed',
+      },
     ]);
   });
 
@@ -462,5 +473,63 @@ describe('fetch-email-bundle', () => {
     if (!result.ok) throw new Error('expected ok');
     const ids = JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages.map((message: { messageId: string }) => message.messageId);
     expect(ids).toEqual(['first', 'second']);
+  });
+
+  test('image attachments, including inline body images, are fetched to bundle/images instead of the 415-failing text converter', async () => {
+    const thread = [messageOf('m1', '2026-07-01T00:00:00Z', true)];
+    const attachments = {
+      m1: attachmentsEnvelope([
+        { id: 'img1', name: 'chart.png', contentType: 'image/png', size: 2000, isInline: false },
+        { id: 'inline1', name: 'signature.gif', contentType: 'image/gif', size: 500, isInline: true },
+        { id: 'doc1', name: 'report.pdf', contentType: 'application/pdf', size: 9000, isInline: false },
+      ]),
+    };
+    const readAttachment = { doc1: markdownEnvelope('# Report\n\ntext') };
+    const { fetchBundle, written, runnerLog } = setup(threadEnvelope(thread), { m1: 'body' }, { attachments, readAttachment });
+
+    const result = await fetchBundle(REQUEST);
+
+    if (!result.ok) throw new Error('expected ok');
+    const base = `data/scratch/${RUN_ID}/msg-2/bundle`;
+    // images fetched by get-mail-attachment (writing into the bundle), never sent to read-mail-attachment
+    expect(runnerLog).toContain(`ask-marcel-office get-mail-attachment --message-id m1 --attachment-id img1 --output-path ${base}/images/01-01-chart.png --output json`);
+    expect(runnerLog).toContain(`ask-marcel-office get-mail-attachment --message-id m1 --attachment-id inline1 --output-path ${base}/images/01-02-signature.gif --output json`);
+    expect(runnerLog.some((call) => call.includes('read-mail-attachment --message-id m1 --attachment-id img1'))).toBe(false);
+    // the document still goes through the text converter, and no image ever touches the string FileWriter
+    expect(runnerLog).toContain('ask-marcel-office read-mail-attachment --message-id m1 --attachment-id doc1 --output json');
+    expect(written.some((w) => w.path.includes('/images/'))).toBe(false);
+    // manifest records each image's bundle path + an 'image' status
+    expect(JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages[0].attachments).toEqual([
+      { attachmentId: 'img1', name: 'chart.png', contentType: 'image/png', size: 2000, isInline: false, path: 'images/01-01-chart.png', status: 'image' },
+      { attachmentId: 'inline1', name: 'signature.gif', contentType: 'image/gif', size: 500, isInline: true, path: 'images/01-02-signature.gif', status: 'image' },
+      { attachmentId: 'doc1', name: 'report.pdf', contentType: 'application/pdf', size: 9000, isInline: false, path: 'attachments/01-03-report-pdf.md', status: 'converted' },
+    ]);
+  });
+
+  test('a failed image fetch is recorded as failed, and an extensionless image name still takes its extension from the content type', async () => {
+    const thread = [messageOf('m1', '2026-07-01T00:00:00Z', true)];
+    const attachments = {
+      m1: attachmentsEnvelope([
+        { id: 'bad', name: 'broken.png', contentType: 'image/png', size: 1, isInline: false },
+        { id: 'noext', name: 'screenshot', contentType: 'image/jpeg', size: 2, isInline: true },
+      ]),
+    };
+    const getAttachment = { bad: ok({ stdout: JSON.stringify({ ok: false, error: 'not found' }), exitCode: 0 }) };
+    const { fetchBundle, written } = setup(threadEnvelope(thread), { m1: 'body' }, { attachments, getAttachment });
+
+    const result = await fetchBundle(REQUEST);
+
+    if (!result.ok) throw new Error('expected ok');
+    const atts = JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages[0].attachments;
+    expect(atts[0]).toEqual({ attachmentId: 'bad', name: 'broken.png', contentType: 'image/png', size: 1, isInline: false, status: 'failed' });
+    expect(atts[1]).toEqual({
+      attachmentId: 'noext',
+      name: 'screenshot',
+      contentType: 'image/jpeg',
+      size: 2,
+      isInline: true,
+      path: 'images/01-02-screenshot.jpeg',
+      status: 'image',
+    });
   });
 });
