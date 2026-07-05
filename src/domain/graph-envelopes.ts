@@ -5,9 +5,9 @@ import type { InboxMessage } from './triage-rules.ts';
 
 export type CurrentUser = { readonly displayName: string; readonly email: string; readonly domain: string };
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
-const asString = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
+export const asString = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
 
 // JSON.parse is a native synchronous thrower — pure-domain fallback (rule 17).
 export const parseEnvelope = (json: string): Result<unknown, string> => {
