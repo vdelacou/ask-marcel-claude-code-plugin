@@ -20,6 +20,7 @@ type Overrides = {
   readonly convert?: Record<string, Result<CommandOutput, RunError>>;
   readonly attachments?: Record<string, Result<CommandOutput, RunError>>;
   readonly readAttachment?: Record<string, Result<CommandOutput, RunError>>;
+  readonly sharepointLinks?: Record<string, Result<CommandOutput, RunError>>;
   readonly failWrite?: (path: string) => boolean;
 };
 
@@ -29,6 +30,8 @@ const markdownEnvelope = (text: string): Result<CommandOutput, RunError> =>
   ok({ stdout: JSON.stringify({ ok: true, data: { contentType: 'text/markdown', size: text.length, text } }), exitCode: 0 });
 
 const attachmentsEnvelope = (list: ReadonlyArray<unknown>): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data: { value: list } }), exitCode: 0 });
+
+const sharepointEnvelope = (links: ReadonlyArray<unknown>): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data: { links } }), exitCode: 0 });
 
 const setup = (thread: Result<CommandOutput, RunError>, markdownById: Record<string, string>, overrides: Overrides = {}): Setup => {
   const written: Written[] = [];
@@ -42,6 +45,7 @@ const setup = (thread: Result<CommandOutput, RunError>, markdownById: Record<str
         const id = args[args.indexOf('--message-id') + 1];
         if (args[0] === 'list-mail-attachments') return overrides.attachments?.[id] ?? attachmentsEnvelope([]);
         if (args[0] === 'read-mail-attachment') return overrides.readAttachment?.[args[args.indexOf('--attachment-id') + 1]] ?? markdownEnvelope('');
+        if (args[0] === 'extract-sharepoint-links-in-mail') return overrides.sharepointLinks?.[id] ?? sharepointEnvelope([]);
         return overrides.convert?.[id] ?? markdownEnvelope(markdownById[id] ?? '');
       },
     },
@@ -83,12 +87,14 @@ describe('fetch-email-bundle', () => {
 
     const result = await fetchBundle({ runId: RUN_ID, emailId: 'msg-2', conversationId: 'conv-abc' });
 
-    // 1. correct CLI ladder: list the thread, convert each message, and list attachments only for the one that has them
+    // 1. correct CLI ladder, message by message: convert body, list attachments (only when present), extract SharePoint links
     expect(runnerLog).toEqual([
       'ask-marcel-office list-conversation-messages --conversation-id conv-abc --select id,subject,from,receivedDateTime,hasAttachments --output json',
       'ask-marcel-office convert-mail-to-markdown --message-id msg-1 --inline-images false --output json',
-      'ask-marcel-office convert-mail-to-markdown --message-id msg-2 --inline-images false --output json',
       'ask-marcel-office list-mail-attachments --message-id msg-1 --select id,name,contentType,size,isInline --output json',
+      'ask-marcel-office extract-sharepoint-links-in-mail --message-id msg-1 --output json',
+      'ask-marcel-office convert-mail-to-markdown --message-id msg-2 --inline-images false --output json',
+      'ask-marcel-office extract-sharepoint-links-in-mail --message-id msg-2 --output json',
     ]);
 
     // 2. each message written as markdown, numbered chronologically
@@ -112,6 +118,7 @@ describe('fetch-email-bundle', () => {
           path: 'messages/01-msg-1.md',
           status: 'converted',
           attachments: [],
+          sharepointDocs: [],
         },
         {
           order: 2,
@@ -123,6 +130,7 @@ describe('fetch-email-bundle', () => {
           path: 'messages/02-msg-2.md',
           status: 'converted',
           attachments: [],
+          sharepointDocs: [],
         },
       ],
     });
@@ -213,6 +221,7 @@ describe('fetch-email-bundle', () => {
       path: 'messages/01-ok2.md',
       status: 'converted',
       attachments: [],
+      sharepointDocs: [],
     });
   });
 
@@ -340,6 +349,74 @@ describe('fetch-email-bundle', () => {
     expect(await fetchBundle(REQUEST)).toEqual({
       ok: false,
       error: { kind: 'write-failed', path: `data/scratch/${RUN_ID}/msg-2/bundle/attachments/01-01-contract-pdf.md`, message: 'disk full' },
+    });
+  });
+
+  test('SharePoint links in each message are resolved and recorded in the manifest', async () => {
+    const thread = [messageOf('m1', '2026-07-01T00:00:00Z', false)];
+    const sharepointLinks = {
+      m1: sharepointEnvelope([
+        { url: 'https://x.sharepoint.com/a', driveId: 'd1', itemId: 'i1', name: 'Spec.docx', webUrl: 'https://x.sharepoint.com/Spec.docx' },
+        { url: 'https://x.sharepoint.com/bad', error: 'access denied' },
+      ]),
+    };
+    const { fetchBundle, written, runnerLog } = setup(threadEnvelope(thread), { m1: 'body' }, { sharepointLinks });
+
+    const result = await fetchBundle(REQUEST);
+
+    expect(runnerLog).toContain('ask-marcel-office extract-sharepoint-links-in-mail --message-id m1 --output json');
+    if (!result.ok) throw new Error('expected ok');
+    expect(JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages[0].sharepointDocs).toEqual([
+      { url: 'https://x.sharepoint.com/a', name: 'Spec.docx', webUrl: 'https://x.sharepoint.com/Spec.docx', driveId: 'd1', itemId: 'i1' },
+      { url: 'https://x.sharepoint.com/bad', error: 'access denied' },
+    ]);
+  });
+
+  test('a failed SharePoint extraction is recorded on the message without sinking the bundle', async () => {
+    const failModes: Record<string, Result<CommandOutput, RunError>> = {
+      'spawn error': err({ kind: 'spawn-failed', message: 'boom' }),
+      'non-zero exit': ok({ stdout: 'x', exitCode: 4 }),
+      'invalid json': ok({ stdout: 'nope', exitCode: 0 }),
+    };
+    const expectedError: Record<string, string> = { 'spawn error': 'boom', 'non-zero exit': 'exited 4', 'invalid json': 'invalid json' };
+
+    for (const [label, response] of Object.entries(failModes)) {
+      const { fetchBundle, written } = setup(threadEnvelope([messageOf('m1', '2026-07-01T00:00:00Z', false)]), { m1: 'body' }, { sharepointLinks: { m1: response } });
+      const result = await fetchBundle(REQUEST);
+      if (!result.ok) throw new Error(`expected ok for ${label}`);
+      const entry = JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages[0];
+      expect(entry.sharepointDocs).toEqual([]);
+      expect(entry.sharepointError).toBe(expectedError[label]);
+    }
+  });
+
+  test('malformed SharePoint link entries are skipped and missing fields fall back to defaults', async () => {
+    const links = [
+      { url: 'https://x.sharepoint.com/ok', driveId: 'd1', itemId: 'i1', name: 'Named.docx', webUrl: 'https://x.sharepoint.com/n' },
+      'not-a-record',
+      null,
+      { driveId: 'd9', itemId: 'i9' },
+      { url: 'https://x.sharepoint.com/partial', driveId: 'd2' },
+      { url: 'https://x.sharepoint.com/nameless', driveId: 'd3', itemId: 'i3' },
+    ];
+    const { fetchBundle, written } = setup(
+      threadEnvelope([messageOf('m1', '2026-07-01T00:00:00Z', false)]),
+      { m1: 'body' },
+      { sharepointLinks: { m1: sharepointEnvelope(links) } }
+    );
+
+    const result = await fetchBundle(REQUEST);
+
+    if (!result.ok) throw new Error('expected ok');
+    const docs = JSON.parse(written.find((w) => w.path.endsWith('manifest.json'))!.content).messages[0].sharepointDocs;
+    expect(docs).toHaveLength(3);
+    expect(docs.find((doc: { url: string }) => doc.url === 'https://x.sharepoint.com/partial')).toEqual({ url: 'https://x.sharepoint.com/partial', error: 'unresolved' });
+    expect(docs.find((doc: { url: string }) => doc.url === 'https://x.sharepoint.com/nameless')).toEqual({
+      url: 'https://x.sharepoint.com/nameless',
+      name: '(unnamed)',
+      webUrl: 'https://x.sharepoint.com/nameless',
+      driveId: 'd3',
+      itemId: 'i3',
     });
   });
 });
