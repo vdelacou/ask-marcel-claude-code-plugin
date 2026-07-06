@@ -1,4 +1,4 @@
-import { extractCurrentUser, extractManager, extractRelevantPeople, extractUsers, parseEnvelope } from '../domain/graph-envelopes.ts';
+import { extractCurrentUser, extractManager, extractRelevantPeople, extractUsers } from '../domain/graph-envelopes.ts';
 import type { CurrentUser } from '../domain/graph-envelopes.ts';
 import { appendLogEntries } from '../domain/kb-log.ts';
 import type { KbFile } from '../domain/okf-kb.ts';
@@ -8,11 +8,11 @@ import type { PersonSeed } from '../domain/person-page.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
 import type { Clock } from './ports/clock.ts';
-import type { CommandRunner } from './ports/command-runner.ts';
 import type { FileProbe } from './ports/file-probe.ts';
 import type { FileReader, ReadError } from './ports/file-reader.ts';
 import type { FileWriter, WriteError } from './ports/file-writer.ts';
 import type { Logger } from './ports/logger.ts';
+import type { Office } from './ports/office.ts';
 
 export type SeedOptions = { readonly relevantTop: number; readonly pageCap: number };
 
@@ -27,7 +27,7 @@ export type SeedSummary = { readonly created: ReadonlyArray<string>; readonly sk
 export type SeedKb = (options: SeedOptions) => Promise<Result<SeedSummary, SeedError>>;
 
 type Deps = {
-  readonly runner: CommandRunner;
+  readonly office: Office;
   readonly files: FileProbe;
   readonly reader: FileReader;
   readonly writer: FileWriter;
@@ -35,12 +35,10 @@ type Deps = {
   readonly logger: Logger;
 };
 
-const fetchEnvelope = async (deps: Deps, source: string, args: ReadonlyArray<string>): Promise<Result<unknown, SeedError>> => {
-  const run = await deps.runner.run('ask-marcel-office', [...args, '--output', 'json']);
-  if (!run.ok) return err({ kind: 'source-failed', source, message: run.error.message });
-  if (run.value.exitCode !== 0) return err({ kind: 'source-failed', source, message: `exited ${run.value.exitCode}` });
-  const parsed = parseEnvelope(run.value.stdout);
-  return parsed.ok ? ok(parsed.value) : err({ kind: 'source-failed', source, message: parsed.error });
+// The command name doubles as the source label in errors: every seed source is one library read.
+const fetchData = async (deps: Deps, command: string, params: Record<string, string> = {}): Promise<Result<unknown, SeedError>> => {
+  const run = await deps.office.execute(command, params);
+  return run.ok ? ok(run.value) : err({ kind: 'source-failed', source: command, message: run.error.message });
 };
 
 const emailDomain = (email: string): string => email.slice(email.indexOf('@') + 1);
@@ -97,10 +95,10 @@ export const createSeedKb =
   async (options) => {
     if (!(await deps.files.exists('data/kb/index.md'))) return err({ kind: 'kb-not-initialized', message: 'run kb-init first' });
     const sources = await Promise.all([
-      fetchEnvelope(deps, 'get-current-user', ['get-current-user']),
-      fetchEnvelope(deps, 'get-my-manager', ['get-my-manager']),
-      fetchEnvelope(deps, 'list-my-direct-reports', ['list-my-direct-reports']),
-      fetchEnvelope(deps, 'list-relevant-people', ['list-relevant-people', '--top', String(options.relevantTop)]),
+      fetchData(deps, 'get-current-user'),
+      fetchData(deps, 'get-my-manager'),
+      fetchData(deps, 'list-my-direct-reports'),
+      fetchData(deps, 'list-relevant-people', { top: String(options.relevantTop) }),
     ]);
     const failed = sources.find((source) => !source.ok);
     if (failed !== undefined && !failed.ok) return err(failed.error);

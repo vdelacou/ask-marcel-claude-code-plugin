@@ -1,4 +1,5 @@
-import { extractSentMetas, parseEnvelope } from '../domain/graph-envelopes.ts';
+import { extractMarkdown } from '../domain/email-thread.ts';
+import { extractSentMetas } from '../domain/graph-envelopes.ts';
 import type { SentMeta } from '../domain/graph-envelopes.ts';
 import { extractOwnBody } from '../domain/own-body.ts';
 import { err, ok } from '../domain/result.ts';
@@ -6,9 +7,9 @@ import type { Result } from '../domain/result.ts';
 import { bucketFor, isSubstantive } from '../domain/voice-rules.ts';
 import type { Bucket, OrgContext } from '../domain/voice-rules.ts';
 import type { Clock } from './ports/clock.ts';
-import type { CommandRunner } from './ports/command-runner.ts';
 import type { FileWriter, WriteError } from './ports/file-writer.ts';
 import type { Logger } from './ports/logger.ts';
+import type { Office } from './ports/office.ts';
 
 export type CorpusOptions = {
   readonly me: { readonly displayName: string; readonly email: string; readonly jobTitle: string };
@@ -33,35 +34,29 @@ export type CorpusError = { readonly kind: 'source-failed'; readonly source: str
 export type ExtractVoiceCorpus = (options: CorpusOptions) => Promise<Result<CorpusSummary, CorpusError>>;
 
 type Deps = {
-  readonly runner: CommandRunner;
+  readonly office: Office;
   readonly writer: FileWriter;
   readonly clock: Clock;
   readonly logger: Logger;
 };
 
+const listParams = (options: CorpusOptions): Record<string, string> => ({
+  filter: `from/emailAddress/address eq '${options.me.email}'`,
+  top: String(options.fetchTop),
+  select: 'id,subject,toRecipients,ccRecipients,receivedDateTime,isDraft',
+});
+
 const listSent = async (deps: Deps, options: CorpusOptions): Promise<Result<ReadonlyArray<SentMeta>, CorpusError>> => {
-  const args = [
-    'list-mail-messages',
-    '--filter',
-    `from/emailAddress/address eq '${options.me.email}'`,
-    '--top',
-    String(options.fetchTop),
-    '--select',
-    'id,subject,toRecipients,ccRecipients,receivedDateTime,isDraft',
-    '--output',
-    'json',
-  ];
-  const run = await deps.runner.run('ask-marcel-office', args);
-  if (!run.ok) return err({ kind: 'source-failed', source: 'list-mail-messages', message: run.error.message });
-  if (run.value.exitCode !== 0) return err({ kind: 'source-failed', source: 'list-mail-messages', message: `exited ${run.value.exitCode}` });
-  const parsed = parseEnvelope(run.value.stdout);
-  return parsed.ok ? ok(extractSentMetas(parsed.value)) : err({ kind: 'source-failed', source: 'list-mail-messages', message: parsed.error });
+  const run = await deps.office.execute('list-mail-messages', listParams(options));
+  return run.ok ? ok(extractSentMetas(run.value)) : err({ kind: 'source-failed', source: 'list-mail-messages', message: run.error.message });
 };
 
 const ownBodyOf = async (deps: Deps, meta: SentMeta, options: CorpusOptions): Promise<string | undefined> => {
-  const converted = await deps.runner.run('ask-marcel-office', ['convert-mail-to-markdown', '--message-id', meta.id]);
-  if (!converted.ok || converted.value.exitCode !== 0) return undefined;
-  const body = extractOwnBody(converted.value.stdout, options.me.displayName, options.me.jobTitle);
+  const converted = await deps.office.execute('convert-mail-to-markdown', { messageId: meta.id });
+  if (!converted.ok) return undefined;
+  const markdown = extractMarkdown(converted.value);
+  if (!markdown.ok) return undefined;
+  const body = extractOwnBody(markdown.value, options.me.displayName, options.me.jobTitle);
   return isSubstantive(body) ? body : undefined;
 };
 

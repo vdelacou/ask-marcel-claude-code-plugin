@@ -4,13 +4,17 @@ import type { DoctorCheck, DoctorReport } from '../domain/doctor.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
 import { createLoggerFake } from '../test-helpers/logger-fake.ts';
+import type { LoggerFake } from '../test-helpers/logger-fake.ts';
 import type { CommandOutput, CommandRunner, RunError } from './ports/command-runner.ts';
 import type { FileProbe } from './ports/file-probe.ts';
+import type { OfficeError } from './ports/office.ts';
 import { createRunDoctor } from './run-doctor.ts';
 
 type Responses = Readonly<Record<string, Result<CommandOutput, RunError>>>;
+type OfficeResp = Result<unknown, OfficeError>;
 
 type RunnerFake = CommandRunner & { readonly log: ReadonlyArray<string> };
+type OfficeFake = { readonly execute: (command: string, params: Record<string, string>) => Promise<OfficeResp>; readonly log: ReadonlyArray<string> };
 
 const createRunnerFake = (responses: Responses): RunnerFake => {
   const log: string[] = [];
@@ -24,6 +28,17 @@ const createRunnerFake = (responses: Responses): RunnerFake => {
   };
 };
 
+const createOfficeFake = (auth: OfficeResp): OfficeFake => {
+  const log: string[] = [];
+  return {
+    log,
+    execute: async (command) => {
+      log.push(command);
+      return auth;
+    },
+  };
+};
+
 const createFileProbeFake = (present: ReadonlyArray<string>): FileProbe => ({
   exists: async (path) => present.includes(path),
 });
@@ -31,19 +46,25 @@ const createFileProbeFake = (present: ReadonlyArray<string>): FileProbe => ({
 const ALL_TOOLS: Responses = {
   'bun --version': ok({ stdout: '1.3.14', exitCode: 0 }),
   'qmd --version': ok({ stdout: '2.6.0', exitCode: 0 }),
-  'ask-marcel-office --version': ok({ stdout: '2.0.0', exitCode: 0 }),
-  'ask-marcel-office get-current-user': ok({ stdout: 'displayName: user', exitCode: 0 }),
   'qmd collection list': ok({ stdout: 'replu-kb (qmd://replu-kb/)', exitCode: 0 }),
 };
 
+const OK_AUTH: OfficeResp = ok({ displayName: 'user', mail: 'me@internal-corp.com' });
+
 const ALL_FILES = ['data/kb/index.md', 'data/profile/voice-profile.md', 'data/profile/user.md'];
 
-const runDoctor = async (overrides: Responses = {}, files: ReadonlyArray<string> = ALL_FILES): Promise<{ report: DoctorReport; runner: RunnerFake }> => {
+const runDoctor = async (
+  overrides: Responses = {},
+  files: ReadonlyArray<string> = ALL_FILES,
+  auth: OfficeResp = OK_AUTH
+): Promise<{ report: DoctorReport; runner: RunnerFake; office: OfficeFake; logger: LoggerFake }> => {
   const runner = createRunnerFake({ ...ALL_TOOLS, ...overrides });
-  const doctor = createRunDoctor({ runner, files: createFileProbeFake(files), logger: createLoggerFake() });
+  const office = createOfficeFake(auth);
+  const logger = createLoggerFake();
+  const doctor = createRunDoctor({ office, runner, files: createFileProbeFake(files), logger });
   const result = await doctor();
   if (!result.ok) throw new Error('doctor never errs');
-  return { report: result.value, runner };
+  return { report: result.value, runner, office, logger };
 };
 
 const check = (report: DoctorReport, id: string): DoctorCheck => {
@@ -54,13 +75,13 @@ const check = (report: DoctorReport, id: string): DoctorCheck => {
 
 describe('run-doctor', () => {
   test('a machine with every tool installed, authenticated, and a built KB is reported ready', async () => {
-    const { report } = await runDoctor();
+    const { report, logger } = await runDoctor();
 
     expect(report.ready).toBe(true);
+    expect(logger.calls).toEqual([{ level: 'info', event: 'doctor-completed', meta: { ready: true } }]);
     expect(report.checks).toEqual([
       { id: 'bun', status: 'ok', detail: '1.3.14' },
       { id: 'qmd', status: 'ok', detail: '2.6.0' },
-      { id: 'ask-marcel-office', status: 'ok', detail: '2.0.0' },
       { id: 'auth', status: 'ok', detail: 'Microsoft 365 session valid' },
       { id: 'kb', status: 'ok', detail: 'data/kb/index.md' },
       { id: 'qmd-collection', status: 'ok', detail: 'replu-kb registered' },
@@ -92,10 +113,17 @@ describe('run-doctor', () => {
     });
   });
 
-  test('an unauthenticated ask-marcel is a login fix, and no login is ever attempted', async () => {
-    const { report, runner } = await runDoctor({ 'ask-marcel-office get-current-user': ok({ stdout: 'InteractionRequired', exitCode: 1 }) });
+  test('a failed get-current-user probe is a login fix, and no login is ever attempted', async () => {
+    const { report, runner, office } = await runDoctor({}, ALL_FILES, err({ kind: 'command-failed', message: 'InteractionRequired', status: 401 }));
 
-    expect(check(report, 'auth')).toEqual({ id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'ask-marcel-office login' });
+    expect(check(report, 'auth')).toEqual({
+      id: 'auth',
+      status: 'missing',
+      detail: 'no valid Microsoft 365 session',
+      fix: 'sign in to Microsoft 365 via the setup skill (browser login)',
+    });
+    // the doctor only reads the session; it never triggers an interactive login (get-current-user is its sole M365 call)
+    expect(office.log).toEqual(['get-current-user']);
     expect(runner.log.some((c) => c.includes('login'))).toBe(false);
   });
 
@@ -143,22 +171,19 @@ describe('run-doctor', () => {
     expect(report.ready).toBe(false);
   });
 
-  test('a machine with no CLIs at all reports every tool missing and still no crash', async () => {
+  test('a machine with no CLIs and no session reports every tool missing and still no crash', async () => {
     const notFound = (name: string): Result<CommandOutput, RunError> => err({ kind: 'not-found', message: `${name}: command not found` });
-    const { report } = await runDoctor({
-      'bun --version': notFound('bun'),
-      'qmd --version': notFound('qmd'),
-      'ask-marcel-office --version': notFound('ask-marcel-office'),
-      'ask-marcel-office get-current-user': notFound('ask-marcel-office'),
-      'qmd collection list': notFound('qmd'),
-    });
+    const { report } = await runDoctor(
+      { 'bun --version': notFound('bun'), 'qmd --version': notFound('qmd'), 'qmd collection list': notFound('qmd') },
+      ALL_FILES,
+      err({ kind: 'command-failed', message: 'no session' })
+    );
 
     expect(report.ready).toBe(false);
     expect(report.checks).toEqual([
       { id: 'bun', status: 'missing', detail: 'not installed', fix: 'curl -fsSL https://bun.sh/install | bash - then add ~/.bun/bin to PATH in ~/.zshrc' },
       { id: 'qmd', status: 'missing', detail: 'not installed', fix: 'bun install -g @tobilu/qmd' },
-      { id: 'ask-marcel-office', status: 'missing', detail: 'not installed', fix: 'npm i -g ask-marcel-office-cli (or: ask-marcel-office update)' },
-      { id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'ask-marcel-office login' },
+      { id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'sign in to Microsoft 365 via the setup skill (browser login)' },
       { id: 'kb', status: 'ok', detail: 'data/kb/index.md' },
       { id: 'qmd-collection', status: 'missing', detail: 'qmd is not installed', fix: 'qmd collection add data/kb --name replu-kb' },
       { id: 'voice-profile', status: 'ok', detail: 'data/profile/voice-profile.md' },
@@ -176,12 +201,6 @@ describe('run-doctor', () => {
     const { report } = await runDoctor({ 'qmd --version': ok({ stdout: 'built from source', exitCode: 0 }) });
 
     expect(check(report, 'qmd')).toEqual({ id: 'qmd', status: 'error', detail: 'unparseable version output: built from source' });
-  });
-
-  test('an auth probe explosion is an error check, not a false login prompt', async () => {
-    const { report } = await runDoctor({ 'ask-marcel-office get-current-user': err({ kind: 'spawn-failed', message: 'token cache corrupt' }) });
-
-    expect(check(report, 'auth')).toEqual({ id: 'auth', status: 'error', detail: 'token cache corrupt' });
   });
 
   test('a qmd that cannot list collections is an error check', async () => {

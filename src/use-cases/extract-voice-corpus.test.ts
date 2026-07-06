@@ -3,9 +3,12 @@ import { describe, expect, test } from 'bun:test';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
 import { createLoggerFake } from '../test-helpers/logger-fake.ts';
-import type { CommandOutput, RunError } from './ports/command-runner.ts';
+import type { LoggerFake } from '../test-helpers/logger-fake.ts';
 import { createExtractVoiceCorpus } from './extract-voice-corpus.ts';
 import type { CorpusOptions, ExtractVoiceCorpus } from './extract-voice-corpus.ts';
+import type { OfficeError } from './ports/office.ts';
+
+type OfficeResp = Result<unknown, OfficeError>;
 
 const NOW = '2026-07-04T18:15:00.000Z';
 
@@ -15,9 +18,6 @@ const OPTIONS: CorpusOptions = {
   fetchTop: 100,
   keep: 2,
 };
-
-const LIST_KEY =
-  "ask-marcel-office list-mail-messages --filter from/emailAddress/address eq 'me@internal-corp.com' --top 100 --select id,subject,toRecipients,ccRecipients,receivedDateTime,isDraft --output json";
 
 const sentMeta = (id: string, to: string, extras: Record<string, unknown> = {}): Record<string, unknown> => ({
   id,
@@ -31,12 +31,26 @@ const sentMeta = (id: string, to: string, extras: Record<string, unknown> = {}):
 const substantiveMd = (who: string): string =>
   `**Subject:** x\n\nHello ${who}, confirmed for Ledger, we align with the group choice and I will push the QUICK OB step with Sam next week.\n\n**_Vincent DELACOURT_**\n`;
 
-type Setup = { readonly extract: ExtractVoiceCorpus; readonly written: ReadonlyArray<{ readonly path: string; readonly content: string }> };
+type Setup = {
+  readonly extract: ExtractVoiceCorpus;
+  readonly written: ReadonlyArray<{ readonly path: string; readonly content: string }>;
+  readonly officeLog: ReadonlyArray<{ command: string; params: Record<string, string> }>;
+  readonly logger: LoggerFake;
+};
 
-const setup = (responses: Readonly<Record<string, Result<CommandOutput, RunError>>>): Setup => {
+const setup = (list: OfficeResp, convertById: Readonly<Record<string, OfficeResp>> = {}): Setup => {
   const written: { path: string; content: string }[] = [];
+  const officeLog: { command: string; params: Record<string, string> }[] = [];
+  const logger = createLoggerFake();
   const extract = createExtractVoiceCorpus({
-    runner: { run: async (cmd, args) => responses[[cmd, ...args].join(' ')] ?? err({ kind: 'not-found', message: `${cmd}: command not found` }) },
+    office: {
+      execute: async (command, params) => {
+        officeLog.push({ command, params });
+        if (command === 'list-mail-messages') return list;
+        if (command === 'convert-mail-to-markdown') return convertById[params['messageId']] ?? err({ kind: 'command-failed', message: 'no fixture' });
+        return err({ kind: 'unknown-command', message: command });
+      },
+    },
     writer: {
       write: async (path, content) => {
         written.push({ path, content });
@@ -44,27 +58,30 @@ const setup = (responses: Readonly<Record<string, Result<CommandOutput, RunError
       },
     },
     clock: { todayIso: () => NOW.slice(0, 10), nowIso: () => NOW },
-    logger: createLoggerFake(),
+    logger,
   });
-  return { extract, written };
+  return { extract, written, officeLog, logger };
 };
 
-const envelope = (value: unknown): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data: { value } }), exitCode: 0 });
-const markdown = (text: string): Result<CommandOutput, RunError> => ok({ stdout: text, exitCode: 0 });
+const listData = (value: unknown): OfficeResp => ok({ value });
+const markdownData = (text: string): OfficeResp => ok({ contentType: 'text/markdown', size: text.length, text });
 
 describe('extract-voice-corpus', () => {
   test('the corpus keeps the last N substantive own-bodies from all folders, bucketed', async () => {
-    const { extract, written } = setup({
-      [LIST_KEY]: envelope([sentMeta('s1', 'jane.boss@internal-corp.com'), sentMeta('s2', 'peer@internal-corp.com'), sentMeta('s3', 'vendor@ext-corp.com')]),
-      'ask-marcel-office convert-mail-to-markdown --message-id s1': markdown(substantiveMd('Jane')),
-      'ask-marcel-office convert-mail-to-markdown --message-id s2': markdown('**Subject:** x\n\nOk noted.'),
-      'ask-marcel-office convert-mail-to-markdown --message-id s3': markdown(substantiveMd('Vendor')),
-    });
+    const { extract, written, logger } = setup(
+      listData([sentMeta('s1', 'jane.boss@internal-corp.com'), sentMeta('s2', 'peer@internal-corp.com'), sentMeta('s3', 'vendor@ext-corp.com')]),
+      {
+        s1: markdownData(substantiveMd('Jane')),
+        s2: markdownData('**Subject:** x\n\nOk noted.'),
+        s3: markdownData(substantiveMd('Vendor')),
+      }
+    );
 
     const result = await extract(OPTIONS);
 
     if (!result.ok) throw new Error('expected ok');
     expect(result.value).toEqual({ path: 'data/scratch/voice-20260704-181500/corpus.json', kept: 2, scanned: 3, byBucket: { upward: 1, external: 1 } });
+    expect(logger.calls).toEqual([{ level: 'info', event: 'voice-corpus-extracted', meta: { kept: 2, scanned: 3 } }]);
     const corpus = JSON.parse(written[0].content);
     expect(corpus.me).toBe('me@internal-corp.com');
     expect(corpus.messages.map((m: { id: string; bucket: string }) => [m.id, m.bucket])).toEqual([
@@ -75,12 +92,29 @@ describe('extract-voice-corpus', () => {
     expect(corpus.messages[0].body.includes('Vincent DELACOURT')).toBe(false);
   });
 
-  test('drafts and unconvertible messages never enter the corpus', async () => {
-    const { extract } = setup({
-      [LIST_KEY]: envelope([sentMeta('d1', 'a@internal-corp.com', { isDraft: true }), sentMeta('s2', 'peer@internal-corp.com'), sentMeta('bad', 'x@internal-corp.com')]),
-      'ask-marcel-office convert-mail-to-markdown --message-id s2': markdown(substantiveMd('Peer')),
-      'ask-marcel-office convert-mail-to-markdown --message-id bad': err({ kind: 'spawn-failed', message: 'boom' }),
+  test('the corpus stops at the keep cap even when more substantive messages remain', async () => {
+    const { extract } = setup(listData([sentMeta('a', 'p1@internal-corp.com'), sentMeta('b', 'p2@internal-corp.com'), sentMeta('c', 'p3@internal-corp.com')]), {
+      a: markdownData(substantiveMd('A')),
+      b: markdownData(substantiveMd('B')),
+      c: markdownData(substantiveMd('C')),
     });
+
+    const result = await extract(OPTIONS);
+
+    if (!result.ok) throw new Error('expected ok');
+    // keep is 2: the cap halts scanning at the third message, so it is never converted
+    expect(result.value.kept).toBe(2);
+    expect(result.value.scanned).toBe(2);
+  });
+
+  test('drafts and unconvertible messages never enter the corpus', async () => {
+    const { extract } = setup(
+      listData([sentMeta('d1', 'a@internal-corp.com', { isDraft: true }), sentMeta('s2', 'peer@internal-corp.com'), sentMeta('bad', 'x@internal-corp.com')]),
+      {
+        s2: markdownData(substantiveMd('Peer')),
+        bad: err({ kind: 'command-failed', message: 'boom' }),
+      }
+    );
 
     const result = await extract(OPTIONS);
 
@@ -89,15 +123,24 @@ describe('extract-voice-corpus', () => {
     expect(result.value.scanned).toBe(2);
   });
 
-  test('a mail source failure surfaces as source-failed, not a crash', async () => {
-    const { extract } = setup({ [LIST_KEY]: ok({ stdout: 'segfault', exitCode: 3 }) });
+  test('a list command sends the from-me filter, the fetch cap, and the slim select', async () => {
+    const { extract, officeLog } = setup(listData([]));
 
-    expect(await extract(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-mail-messages', message: 'exited 3' } });
+    await extract(OPTIONS);
 
-    const notJson = setup({ [LIST_KEY]: ok({ stdout: 'not json', exitCode: 0 }) });
-    expect(await notJson.extract(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-mail-messages', message: 'invalid json' } });
+    expect(officeLog[0]).toEqual({
+      command: 'list-mail-messages',
+      params: { filter: "from/emailAddress/address eq 'me@internal-corp.com'", top: '100', select: 'id,subject,toRecipients,ccRecipients,receivedDateTime,isDraft' },
+    });
+  });
 
-    const noCli = setup({});
-    expect(await noCli.extract(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-mail-messages', message: 'ask-marcel-office: command not found' } });
+  test('a mail source failure surfaces as source-failed; malformed list data is a well-formed empty corpus', async () => {
+    const { extract } = setup(err({ kind: 'command-failed', message: 'boom' }));
+    expect(await extract(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-mail-messages', message: 'boom' } });
+
+    const garbage = setup(ok('not a record'));
+    const result = await garbage.extract(OPTIONS);
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.value.kept).toBe(0);
   });
 });

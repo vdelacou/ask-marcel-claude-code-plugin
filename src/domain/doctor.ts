@@ -1,6 +1,8 @@
 import { extractSemver, gteSemver } from './semver.ts';
 
-export type CheckId = 'bun' | 'qmd' | 'ask-marcel-office' | 'auth' | 'kb' | 'qmd-collection' | 'voice-profile' | 'user-md';
+// Microsoft 365 access is library-only (SPEC §15.1): the doctor no longer probes an
+// ask-marcel-office binary version; a live get-current-user call IS the M365 readiness signal.
+export type CheckId = 'bun' | 'qmd' | 'auth' | 'kb' | 'qmd-collection' | 'voice-profile' | 'user-md';
 
 export type CheckStatus = 'ok' | 'missing' | 'outdated' | 'error';
 
@@ -10,12 +12,11 @@ export type DoctorReport = { readonly ready: boolean; readonly checks: ReadonlyA
 
 export type ToolProbe = { readonly kind: 'version'; readonly stdout: string } | { readonly kind: 'absent' } | { readonly kind: 'failed'; readonly message: string };
 
-export type AuthProbe = { readonly kind: 'ok' } | { readonly kind: 'unauthenticated' } | { readonly kind: 'failed'; readonly message: string };
+export type AuthProbe = { readonly kind: 'ok' } | { readonly kind: 'unauthenticated' };
 
 export type DoctorInputs = {
   readonly bun: ToolProbe;
   readonly qmd: ToolProbe;
-  readonly askMarcel: ToolProbe;
   readonly auth: AuthProbe;
   readonly collections: ToolProbe;
   readonly kbExists: boolean;
@@ -23,15 +24,16 @@ export type DoctorInputs = {
   readonly userMdExists: boolean;
 };
 
-type ToolId = 'bun' | 'qmd' | 'ask-marcel-office';
+type ToolId = 'bun' | 'qmd';
 
 const TOOL_POLICY: Readonly<Record<ToolId, { readonly minimum: string; readonly installFix: string }>> = {
   bun: { minimum: '1.2.0', installFix: 'curl -fsSL https://bun.sh/install | bash - then add ~/.bun/bin to PATH in ~/.zshrc' },
   qmd: { minimum: '2.5.0', installFix: 'bun install -g @tobilu/qmd' },
-  'ask-marcel-office': { minimum: '2.0.0', installFix: 'npm i -g ask-marcel-office-cli (or: ask-marcel-office update)' },
 };
 
 const COLLECTION_FIX = 'qmd collection add data/kb --name replu-kb';
+
+const AUTH_FIX = 'sign in to Microsoft 365 via the setup skill (browser login)';
 
 const evaluateTool = (id: ToolId, probe: ToolProbe): DoctorCheck => {
   const policy = TOOL_POLICY[id];
@@ -43,11 +45,10 @@ const evaluateTool = (id: ToolId, probe: ToolProbe): DoctorCheck => {
   return { id, status: 'ok', detail: version };
 };
 
-const evaluateAuth = (auth: AuthProbe): DoctorCheck => {
-  if (auth.kind === 'ok') return { id: 'auth', status: 'ok', detail: 'Microsoft 365 session valid' };
-  if (auth.kind === 'unauthenticated') return { id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'ask-marcel-office login' };
-  return { id: 'auth', status: 'error', detail: auth.message };
-};
+const evaluateAuth = (auth: AuthProbe): DoctorCheck =>
+  auth.kind === 'ok'
+    ? { id: 'auth', status: 'ok', detail: 'Microsoft 365 session valid' }
+    : { id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: AUTH_FIX };
 
 const evaluateCollection = (probe: ToolProbe): DoctorCheck => {
   if (probe.kind === 'absent') return { id: 'qmd-collection', status: 'missing', detail: 'qmd is not installed', fix: COLLECTION_FIX };
@@ -63,7 +64,6 @@ export const evaluateDoctor = (inputs: DoctorInputs): DoctorReport => {
   const checks: ReadonlyArray<DoctorCheck> = [
     evaluateTool('bun', inputs.bun),
     evaluateTool('qmd', inputs.qmd),
-    evaluateTool('ask-marcel-office', inputs.askMarcel),
     evaluateAuth(inputs.auth),
     evaluateFile('kb', inputs.kbExists, 'data/kb/index.md', 'initialize the OKF tree under data/kb (setup skill)'),
     evaluateCollection(inputs.collections),

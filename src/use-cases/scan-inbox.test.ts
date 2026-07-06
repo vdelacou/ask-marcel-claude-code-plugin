@@ -3,9 +3,10 @@ import { describe, expect, test } from 'bun:test';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
 import { createLoggerFake } from '../test-helpers/logger-fake.ts';
+import type { LoggerFake } from '../test-helpers/logger-fake.ts';
 import { createStateStoreFake } from '../test-helpers/state-store-fake.ts';
 import type { StateStoreFake } from '../test-helpers/state-store-fake.ts';
-import type { CommandOutput, RunError } from './ports/command-runner.ts';
+import type { OfficeError } from './ports/office.ts';
 import { createScanInbox } from './scan-inbox.ts';
 import type { ScanInbox, ScanOptions } from './scan-inbox.ts';
 
@@ -46,17 +47,25 @@ const MESSAGES = [
 ];
 
 type Written = { readonly path: string; readonly content: string };
+type OfficeCall = { readonly command: string; readonly params: Record<string, string> };
 
-type Setup = { readonly scan: ScanInbox; readonly written: ReadonlyArray<Written>; readonly runnerLog: ReadonlyArray<string>; readonly stateStore: StateStoreFake };
+type Setup = {
+  readonly scan: ScanInbox;
+  readonly written: ReadonlyArray<Written>;
+  readonly officeLog: ReadonlyArray<OfficeCall>;
+  readonly stateStore: StateStoreFake;
+  readonly logger: LoggerFake;
+};
 
-const setup = (response: Result<CommandOutput, RunError>): Setup => {
+const setup = (response: Result<unknown, OfficeError>): Setup => {
   const written: Written[] = [];
-  const runnerLog: string[] = [];
+  const officeLog: OfficeCall[] = [];
   const stateStore = createStateStoreFake();
+  const logger = createLoggerFake();
   const scan = createScanInbox({
-    runner: {
-      run: async (cmd, args) => {
-        runnerLog.push([cmd, ...args].join(' '));
+    office: {
+      execute: async (command, params) => {
+        officeLog.push({ command, params });
         return response;
       },
     },
@@ -68,22 +77,23 @@ const setup = (response: Result<CommandOutput, RunError>): Setup => {
     },
     stateStore,
     clock: { todayIso: () => NOW.slice(0, 10), nowIso: () => NOW },
-    logger: createLoggerFake(),
+    logger,
   });
-  return { scan, written, runnerLog, stateStore };
+  return { scan, written, officeLog, stateStore, logger };
 };
 
-const envelope = (value: unknown): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data: { value } }), exitCode: 0 });
+const data = (value: unknown): Result<unknown, OfficeError> => ok({ value });
 
 const OPTIONS: ScanOptions = { scope: 'unread', cap: 25, blocked: [] };
 
 describe('scan-inbox', () => {
   test('a fresh unread inbox becomes a run with every real mail scanned and state initialized', async () => {
-    const { scan, written, stateStore } = setup(envelope(MESSAGES));
+    const { scan, written, stateStore, logger } = setup(data(MESSAGES));
 
     const result = await scan(OPTIONS);
 
     if (!result.ok) throw new Error('expected ok');
+    expect(logger.calls).toEqual([{ level: 'info', event: 'inbox-scanned', meta: { runId: RUN_ID, kept: 2, dropped: 1 } }]);
     expect(result.value.runId).toBe(RUN_ID);
     expect(result.value.runId).toMatch(/^run-\d{8}-\d{6}$/);
     expect(result.value.kept.map((m) => m.id)).toEqual(['m1', 'm3']);
@@ -127,21 +137,23 @@ describe('scan-inbox', () => {
   });
 
   test('the unread scope filters server-side, the all scope does not', async () => {
-    const unread = setup(envelope([]));
+    const unread = setup(data([]));
     await unread.scan(OPTIONS);
-    expect(unread.runnerLog[0]).toBe(
-      'ask-marcel-office list-mail-folder-messages --mail-folder-id inbox --top 25 --filter isRead eq false --select id,conversationId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview --output json'
-    );
+    expect(unread.officeLog[0]).toEqual({
+      command: 'list-mail-folder-messages',
+      params: { mailFolderId: 'inbox', top: '25', filter: 'isRead eq false', select: 'id,conversationId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview' },
+    });
 
-    const all = setup(envelope([]));
+    const all = setup(data([]));
     await all.scan({ scope: 'all', cap: 50, blocked: [] });
-    expect(all.runnerLog[0]).toBe(
-      'ask-marcel-office list-mail-folder-messages --mail-folder-id inbox --top 50 --select id,conversationId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview --output json'
-    );
+    expect(all.officeLog[0]).toEqual({
+      command: 'list-mail-folder-messages',
+      params: { mailFolderId: 'inbox', top: '50', select: 'id,conversationId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview' },
+    });
   });
 
   test('an empty inbox still yields a well-formed empty run', async () => {
-    const { scan, written, stateStore } = setup(envelope([]));
+    const { scan, written, stateStore } = setup(data([]));
 
     const result = await scan(OPTIONS);
 
@@ -151,13 +163,11 @@ describe('scan-inbox', () => {
   });
 
   test('a mail source failure surfaces as source-failed, not a crash', async () => {
-    const { scan } = setup(err({ kind: 'spawn-failed', message: 'EPERM boom' }));
+    const { scan } = setup(err({ kind: 'command-failed', message: 'EPERM boom' }));
     expect(await scan(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-inbox', message: 'EPERM boom' } });
 
-    const nonZero = setup(ok({ stdout: 'boom', exitCode: 3 }));
-    expect(await nonZero.scan(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-inbox', message: 'exited 3' } });
-
-    const garbage = setup(ok({ stdout: 'not json', exitCode: 0 }));
-    expect(await garbage.scan(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-inbox', message: 'invalid json' } });
+    // malformed data (not a message envelope) is a well-formed empty run, never a crash
+    const garbage = setup(ok('not a record'));
+    expect(await garbage.scan(OPTIONS)).toEqual({ ok: true, value: { runId: RUN_ID, kept: [], dropped: [] } });
   });
 });

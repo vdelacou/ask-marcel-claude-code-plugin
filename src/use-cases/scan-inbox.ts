@@ -1,5 +1,5 @@
 import type { RunState } from '../domain/email-state.ts';
-import { extractMessages, parseEnvelope } from '../domain/graph-envelopes.ts';
+import { extractMessages } from '../domain/graph-envelopes.ts';
 import { parseRunId } from '../domain/run-id.ts';
 import type { RunId } from '../domain/run-id.ts';
 import { err, ok, unwrap } from '../domain/result.ts';
@@ -7,9 +7,9 @@ import type { Result } from '../domain/result.ts';
 import { evaluateMessage } from '../domain/triage-rules.ts';
 import type { DropReason, InboxMessage } from '../domain/triage-rules.ts';
 import type { Clock } from './ports/clock.ts';
-import type { CommandRunner } from './ports/command-runner.ts';
 import type { FileWriter, WriteError } from './ports/file-writer.ts';
 import type { Logger } from './ports/logger.ts';
+import type { Office } from './ports/office.ts';
 import type { StateStore } from './ports/state-store.ts';
 
 export type ScanScope = 'unread' | 'all';
@@ -26,7 +26,7 @@ export type ScanSummary = { readonly runId: string; readonly kept: ReadonlyArray
 export type ScanInbox = (options: ScanOptions) => Promise<Result<ScanSummary, ScanError>>;
 
 type Deps = {
-  readonly runner: CommandRunner;
+  readonly office: Office;
   readonly writer: FileWriter;
   readonly stateStore: StateStore;
   readonly clock: Clock;
@@ -38,26 +38,17 @@ const SELECT_FIELDS = 'id,conversationId,subject,from,receivedDateTime,hasAttach
 // A valid ISO instant always yields a well-formed RunId, so unwrap is a programmer-bug guard, not a flow.
 const runIdFrom = (nowIso: string): RunId => unwrap(parseRunId(`run-${nowIso.slice(0, 10).replaceAll('-', '')}-${nowIso.slice(11, 19).replaceAll(':', '')}`));
 
-const listArgs = (options: ScanOptions): ReadonlyArray<string> => [
-  'list-mail-folder-messages',
-  '--mail-folder-id',
-  'inbox',
-  '--top',
-  String(options.cap),
-  ...(options.scope === 'unread' ? ['--filter', 'isRead eq false'] : []),
-  '--select',
-  SELECT_FIELDS,
-  '--output',
-  'json',
-];
+const listParams = (options: ScanOptions): Record<string, string> => ({
+  mailFolderId: 'inbox',
+  top: String(options.cap),
+  ...(options.scope === 'unread' ? { filter: 'isRead eq false' } : {}),
+  select: SELECT_FIELDS,
+});
 
 const fetchInbox = async (deps: Deps, options: ScanOptions): Promise<Result<ReadonlyArray<InboxMessage>, ScanError>> => {
-  const run = await deps.runner.run('ask-marcel-office', listArgs(options));
+  const run = await deps.office.execute('list-mail-folder-messages', listParams(options));
   if (!run.ok) return err({ kind: 'source-failed', source: 'list-inbox', message: run.error.message });
-  if (run.value.exitCode !== 0) return err({ kind: 'source-failed', source: 'list-inbox', message: `exited ${run.value.exitCode}` });
-  const parsed = parseEnvelope(run.value.stdout);
-  if (!parsed.ok) return err({ kind: 'source-failed', source: 'list-inbox', message: parsed.error });
-  return ok(extractMessages(parsed.value));
+  return ok(extractMessages(run.value));
 };
 
 const split = (messages: ReadonlyArray<InboxMessage>, blocked: ReadonlyArray<string>): { readonly kept: InboxMessage[]; readonly dropped: DroppedMessage[] } => {

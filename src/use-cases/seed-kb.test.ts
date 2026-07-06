@@ -3,38 +3,35 @@ import { describe, expect, test } from 'bun:test';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
 import { createLoggerFake } from '../test-helpers/logger-fake.ts';
-import type { CommandOutput, RunError } from './ports/command-runner.ts';
+import type { LoggerFake } from '../test-helpers/logger-fake.ts';
 import type { FileWriter, WriteError } from './ports/file-writer.ts';
+import type { OfficeError } from './ports/office.ts';
 import { createSeedKb } from './seed-kb.ts';
 import type { SeedKb } from './seed-kb.ts';
 
-type Responses = Readonly<Record<string, Result<CommandOutput, RunError>>>;
+type OfficeResp = Result<unknown, OfficeError>;
+type Responses = Readonly<Record<string, OfficeResp>>;
 
-const envelope = (data: unknown): Result<CommandOutput, RunError> => ok({ stdout: JSON.stringify({ ok: true, data }), exitCode: 0 });
-
+// The library returns each command's data object directly, keyed here by command name.
 const SOURCES: Responses = {
-  'ask-marcel-office get-current-user --output json': envelope({
-    displayName: 'Test User',
-    mail: 'me@internal-corp.com',
-    userPrincipalName: 'me@internal-corp.com',
-    jobTitle: 'Director',
-  }),
-  'ask-marcel-office get-my-manager --output json': envelope({ manager: null, note: 'signed-in user has no manager set in the directory' }),
-  'ask-marcel-office list-my-direct-reports --output json': envelope({ value: [{ displayName: 'Report One', mail: 'report.one@internal-corp.com', jobTitle: 'Manager' }] }),
-  'ask-marcel-office list-relevant-people --top 15 --output json': envelope({
-    value: [{ displayName: 'Ext Vendor', scoredEmailAddresses: [{ address: 'vendor@ext-corp.com' }], jobTitle: 'Sales', companyName: 'Ext Corp' }],
-  }),
+  'get-current-user': ok({ displayName: 'Test User', mail: 'me@internal-corp.com', userPrincipalName: 'me@internal-corp.com', jobTitle: 'Director' }),
+  'get-my-manager': ok({ manager: null, note: 'signed-in user has no manager set in the directory' }),
+  'list-my-direct-reports': ok({ value: [{ displayName: 'Report One', mail: 'report.one@internal-corp.com', jobTitle: 'Manager' }] }),
+  'list-relevant-people': ok({ value: [{ displayName: 'Ext Vendor', scoredEmailAddresses: [{ address: 'vendor@ext-corp.com' }], jobTitle: 'Sales', companyName: 'Ext Corp' }] }),
 };
 
 const SEEDED_LOG = '# Log\n\n## 2026-07-04\n\n- kb-init: created the OKF skeleton\n';
 
 type Written = { readonly path: string; readonly content: string };
+type OfficeCall = { readonly command: string; readonly params: Record<string, string> };
 
-type Setup = { readonly seedKb: SeedKb; readonly written: ReadonlyArray<Written> };
+type Setup = { readonly seedKb: SeedKb; readonly written: ReadonlyArray<Written>; readonly officeLog: ReadonlyArray<OfficeCall>; readonly logger: LoggerFake };
 
 const setup = (overrides: Responses = {}, existingPages: ReadonlyArray<string> = [], failWrite?: WriteError): Setup => {
   const responses = { ...SOURCES, ...overrides };
   const written: Written[] = [];
+  const officeLog: OfficeCall[] = [];
+  const logger = createLoggerFake();
   const writer: FileWriter = {
     write: async (path, content) => {
       if (failWrite !== undefined && failWrite.path === path) return err(failWrite);
@@ -43,21 +40,26 @@ const setup = (overrides: Responses = {}, existingPages: ReadonlyArray<string> =
     },
   };
   const seedKb = createSeedKb({
-    runner: { run: async (cmd, args) => responses[[cmd, ...args].join(' ')] ?? err({ kind: 'not-found', message: `${cmd}: command not found` }) },
+    office: {
+      execute: async (command, params) => {
+        officeLog.push({ command, params });
+        return responses[command] ?? err({ kind: 'unknown-command', message: `${command}: not registered` });
+      },
+    },
     files: { exists: async (path) => path === 'data/kb/index.md' || existingPages.includes(path) },
     reader: { read: async (path) => (path === 'data/kb/log.md' ? ok(SEEDED_LOG) : err({ kind: 'read-failed', path, message: 'missing' })) },
     writer,
     clock: { todayIso: () => '2026-07-04', nowIso: () => '2026-07-04T00:00:00.000Z' },
-    logger: createLoggerFake(),
+    logger,
   });
-  return { seedKb, written };
+  return { seedKb, written, officeLog, logger };
 };
 
 const OPTIONS = { relevantTop: 15, pageCap: 40 };
 
 describe('seed-kb', () => {
   test('a user without a manager in the directory seeds cleanly', async () => {
-    const { seedKb, written } = setup();
+    const { seedKb, written, officeLog, logger } = setup();
 
     const result = await seedKb(OPTIONS);
 
@@ -69,14 +71,25 @@ describe('seed-kb', () => {
         dropped: 0,
       },
     });
+    // relevant-people is fetched with the configured cap, and the run is logged
+    expect(officeLog).toContainEqual({ command: 'list-relevant-people', params: { top: '15' } });
+    expect(logger.calls).toEqual([{ level: 'info', event: 'kb-seeded', meta: { created: 4, skipped: 0, dropped: 0 } }]);
+    // each org page carries its email domain in the frontmatter
     expect(written.find((w) => w.path === 'data/kb/orgs/internal-corp-com.md')?.content).toContain('relationship: internal');
+    expect(written.find((w) => w.path === 'data/kb/orgs/internal-corp-com.md')?.content).toContain('internal-corp.com');
     expect(written.find((w) => w.path === 'data/kb/orgs/ext-corp-com.md')?.content).toContain('relationship: external');
+  });
+
+  test('a current user that cannot be resolved aborts the seed as source-failed', async () => {
+    const { seedKb } = setup({ 'get-current-user': ok({ mail: 'me@internal-corp.com' }) });
+
+    expect(await seedKb(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'get-current-user', message: 'current-user: missing displayName or mail' } });
   });
 
   test('the same human via two sources gets one page', async () => {
     const { seedKb } = setup({
-      'ask-marcel-office get-my-manager --output json': envelope({ manager: { displayName: 'Jane Boss', mail: 'jane@internal-corp.com', jobTitle: 'VP' } }),
-      'ask-marcel-office list-relevant-people --top 15 --output json': envelope({
+      'get-my-manager': ok({ manager: { displayName: 'Jane Boss', mail: 'jane@internal-corp.com', jobTitle: 'VP' } }),
+      'list-relevant-people': ok({
         value: [
           {
             displayName: 'Jane Boss',
@@ -115,12 +128,14 @@ describe('seed-kb', () => {
     );
   });
 
-  test('malformed CLI json becomes a parse error, not a crash', async () => {
-    const { seedKb } = setup({ 'ask-marcel-office list-relevant-people --top 15 --output json': ok({ stdout: 'segfault haha', exitCode: 0 }) });
+  test('malformed source data yields no seeds from that source, not a crash', async () => {
+    const { seedKb } = setup({ 'list-relevant-people': ok('segfault haha') });
 
     const result = await seedKb(OPTIONS);
 
-    expect(result).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-relevant-people', message: 'invalid json' } });
+    if (!result.ok) throw new Error('expected ok');
+    // the relevant-people source contributed nothing, so its vendor + org never appear
+    expect(result.value.created).toEqual(['data/kb/orgs/internal-corp-com.md', 'data/kb/people/report-one.md']);
   });
 
   test('the seed respects the page cap and reports what it dropped', async () => {
@@ -139,21 +154,17 @@ describe('seed-kb', () => {
     expect(await seedKb(OPTIONS)).toEqual({ ok: false, error: { kind: 'write-failed', path: 'data/kb/orgs/ext-corp-com.md', message: 'disk full' } });
   });
 
-  test('a source that exits non-zero fails the seed as source-failed', async () => {
-    const { seedKb } = setup({ 'ask-marcel-office list-my-direct-reports --output json': ok({ stdout: 'boom', exitCode: 3 }) });
-
+  test('a failing source aborts the seed as source-failed, naming the source', async () => {
+    const { seedKb } = setup({ 'list-my-direct-reports': err({ kind: 'command-failed', message: 'exited 3' }) });
     expect(await seedKb(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-my-direct-reports', message: 'exited 3' } });
-  });
 
-  test('a machine without the CLI fails the seed as source-failed, never a crash', async () => {
-    const { seedKb } = setup({ 'ask-marcel-office get-current-user --output json': err({ kind: 'not-found', message: 'ask-marcel-office: command not found' }) });
-
-    expect(await seedKb(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'get-current-user', message: 'ask-marcel-office: command not found' } });
+    const authDown = setup({ 'get-current-user': err({ kind: 'command-failed', message: 'no valid session' }) });
+    expect(await authDown.seedKb(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'get-current-user', message: 'no valid session' } });
   });
 
   test('an uninitialized kb refuses to seed', async () => {
     const refusing = createSeedKb({
-      runner: { run: async () => err({ kind: 'not-found', message: 'unused' }) },
+      office: { execute: async () => err({ kind: 'unknown-command', message: 'unused' }) },
       files: { exists: async () => false },
       reader: { read: async () => err({ kind: 'read-failed', path: 'x', message: 'unused' }) },
       writer: { write: async () => ok(undefined) },

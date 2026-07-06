@@ -7,32 +7,30 @@
  */
 import { buildDeps } from '../src/composition/build-deps.ts';
 import { loadConfig } from '../src/composition/config.ts';
-import { extractCurrentUser, extractManager, parseEnvelope } from '../src/domain/graph-envelopes.ts';
+import { extractCurrentUser, extractManager } from '../src/domain/graph-envelopes.ts';
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { createExtractVoiceCorpus } from '../src/use-cases/extract-voice-corpus.ts';
-import type { CommandRunner } from '../src/use-cases/ports/command-runner.ts';
+import type { Office } from '../src/use-cases/ports/office.ts';
 
 const flagValue = (name: string, fallback: string): string => {
   const index = Bun.argv.indexOf(name);
   return index === -1 ? fallback : (Bun.argv[index + 1] ?? fallback);
 };
 
-const fetchData = async (runner: CommandRunner, args: ReadonlyArray<string>): Promise<unknown> => {
-  const run = await runner.run('ask-marcel-office', [...args, '--output', 'json']);
-  if (!run.ok || run.value.exitCode !== 0) return undefined;
-  const parsed = parseEnvelope(run.value.stdout);
-  return parsed.ok ? parsed.value : undefined;
+const fetchData = async (office: Office, command: string): Promise<unknown> => {
+  const run = await office.execute(command, {});
+  return run.ok ? run.value : undefined;
 };
 
 try {
   const config = loadConfig({ LOG_LEVEL: 'error', ...process.env });
   const deps = buildDeps(config);
-  const me = extractCurrentUser(await fetchData(deps.runner, ['get-current-user']));
+  const me = extractCurrentUser(await fetchData(deps.office, 'get-current-user'));
   if (!me.ok) {
     console.error(`voice-extract: cannot resolve identity: ${me.error}`);
     process.exit(1);
   }
-  const manager = extractManager(await fetchData(deps.runner, ['get-my-manager']));
+  const manager = extractManager(await fetchData(deps.office, 'get-my-manager'));
   const jobTitle = flagValue('--job-title', '');
   const result = await createExtractVoiceCorpus(deps)({
     me: { displayName: me.value.displayName, email: me.value.email, jobTitle },
