@@ -66,7 +66,7 @@ data/              # runtime KB / profile / scratch — gitignored, never leaves
 
 `bun scripts/fetch-email-bundle.ts --run-id <id> --email-id <id> --conversation-id <id> [--json]` — Phase 3 (§7): assemble one email's research bundle (whole thread as markdown, every attachment, resolved SharePoint docs) under `data/scratch/<run>/<email>/bundle/`.
 
-`bun scripts/read-doc.ts --run-id <id> --email-id <id> --name <name> --drive-id <id> --item-id <id> [--json]` — read one drive item as markdown, falling back to rendering its PDF pages when the conversion is scrambled (§7).
+`bun scripts/read-doc.ts --run-id <id> --email-id <id> --name <name> --drive-id <id> --item-id <id> [--json]` — read one drive item as markdown (pulling any embedded images alongside it via `extract-drive-item-images`), falling back to rendering its PDF pages when the conversion is scrambled (§7).
 
 `bun scripts/search-exec.ts --query "<q>" [--backends kb,mail,sharepoint] [--json]` — one search round (§6): fan out across the requested backends in parallel, print one merged, deduped, source-tagged hit list.
 
@@ -90,4 +90,4 @@ Load the repo directly: `claude --plugin-dir ~/Documents/email-replu`, then invo
 
 ## Status
 
-M0-M7 functionally complete, plus the full library-only migration (decision 19, R1-R4 enforced). Triage (scan + triage-scout + Gate 1), the M5 research pipeline (`fetch-email-bundle` with attachments + SharePoint, `read-doc` with PDF fallback, the search module over kb/mail/sharepoint, the KB queue, the `email-researcher` agent), the M6 drafting loop (`draft-apply`'s code approval gate, `write-kb-page`, the `kb-curator` agent, and the `inbox-zero` skill's full Phase 0-5 orchestration), and the M7 gardener (`kb-lint`, `kb-index-gen`, the `kb-gardener` skill, pre-research mode, scheduling) are all built and green. Next: land the staged work in reviewable commits, a live end-to-end smoke against a real inbox, and the optional Img-B (doc-embedded images) enrichment.
+M0-M7 functionally complete, plus the full library-only migration (decision 19, R1-R4 enforced). Triage (scan + triage-scout + Gate 1), the M5 research pipeline (`fetch-email-bundle` with attachments + SharePoint, `read-doc` with embedded-image extraction plus PDF fallback, the search module over kb/mail/sharepoint, the KB queue, the `email-researcher` agent), the M6 drafting loop (`draft-apply`'s code approval gate, `write-kb-page`, the `kb-curator` agent, and the `inbox-zero` skill's full Phase 0-5 orchestration), and the M7 gardener (`kb-lint`, `kb-index-gen`, the `kb-gardener` skill, pre-research mode, scheduling) are all built and green. The read-only pipeline (auth, scan, bundle, search) is live-verified against a real inbox. Next: the `package.json` dependency flip once the Office library is published to npm.

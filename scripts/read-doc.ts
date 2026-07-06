@@ -34,7 +34,7 @@ try {
   if (Bun.argv.includes('--json')) {
     console.log(JSON.stringify(result.ok ? { ok: true, ...result.value } : { ok: false, error: result.error }));
   } else if (result.ok) {
-    console.log(`read-doc: ${name} -> ${result.value.mode} (${result.value.path})`);
+    console.log(`read-doc: ${name} -> ${result.value.mode} (${result.value.path}, ${result.value.images} image(s))`);
   } else {
     console.error(`read-doc: ${JSON.stringify(result.error)}`);
   }
