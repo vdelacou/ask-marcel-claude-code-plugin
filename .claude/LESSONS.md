@@ -53,3 +53,7 @@ The use-case plus its mutation-complete tests came to 377 lines, over the 300-li
 ## [gotcha] 2026-07-05 | empty conversion output renders as status 'failed'
 
 `asString('')` returns undefined (it treats '' as absent), so `extractMarkdown` on a convert-mail-to-markdown / read-mail-attachment response whose `text` is `''` returns an err, and the bundle marks that message body or attachment `status: 'failed'` with no file written. Real behaviour, not a bug — an empty render is treated as no content. When a test needs a 'converted' outcome, feed non-empty markdown; empty-string fixtures surface as 'failed' (cost 3 test failures to spot).
+
+## [decision] 2026-07-05 | M365 access is library-only — never the CLI binary, never raw Graph
+
+Per user directive, the plugin reaches Microsoft 365 ONLY through the imported `ask-marcel-office-cli` library. HARD RULES (SPEC §15.1, decision 19): (R1) never spawn the `ask-marcel-office` binary — not code, scripts, skills, or login; `CommandRunner` is for `qmd`/`bun` only. (R2) never call the raw `buildDeps().graph`; all Graph access is `commands[name].execute(graph, params)` (the registry has no `send`, so it is the safe surface). (R3) import `ask-marcel-office-cli` only in `src/composition/**` + `src/infra/office.ts`; login via `buildDeps().makeLoginAuth()`. (R4) skills call `bun scripts/*.ts`, never bash the binary. Lint enforcement activates once the migration drops the last spawn; draft-approval moves from the Bash `draft-gate` hook to the code state-machine gate. The binary may be uninstalled.
