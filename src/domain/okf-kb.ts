@@ -2,9 +2,9 @@ export type KbFile = { readonly path: string; readonly content: string };
 
 export const KB_ROOT = 'data/kb';
 
-type Folder = { readonly name: string; readonly title: string; readonly blurb: string };
+export type KbFolder = { readonly name: string; readonly title: string; readonly blurb: string };
 
-const FOLDERS: ReadonlyArray<Folder> = [
+export const KB_FOLDERS: ReadonlyArray<KbFolder> = [
   { name: 'people', title: 'People', blurb: 'one page per person: identity, org links, commitments.' },
   { name: 'orgs', title: 'Orgs', blurb: 'organizations and teams: domains, relationships, key people.' },
   { name: 'projects', title: 'Projects', blurb: 'active projects and their state.' },
@@ -26,13 +26,13 @@ const rootIndex = (): string =>
     '',
     'Open Knowledge Format bundle for the inbox-zero reply plugin (SPEC.md §8).',
     '',
-    ...FOLDERS.map((folder) => `- [${folder.title}](/${folder.name}/index.md) - ${folder.blurb}`),
+    ...KB_FOLDERS.map((folder) => `- [${folder.title}](/${folder.name}/index.md) - ${folder.blurb}`),
     '',
   ].join('\n');
 
 const logSeed = (todayIso: string): string => ['# Log', '', `## ${todayIso}`, '', '- kb-init: created the OKF skeleton', ''].join('\n');
 
-const folderIndex = (folder: Folder): string => [`# ${folder.title}`, '', sentence(folder.blurb), '', '_No pages yet._', ''].join('\n');
+const folderIndex = (folder: KbFolder): string => [`# ${folder.title}`, '', sentence(folder.blurb), '', '_No pages yet._', ''].join('\n');
 
 const abbreviationsSeed = (todayIso: string): string =>
   [
@@ -54,6 +54,6 @@ const abbreviationsSeed = (todayIso: string): string =>
 export const kbSkeleton = (todayIso: string): ReadonlyArray<KbFile> => [
   { path: `${KB_ROOT}/index.md`, content: rootIndex() },
   { path: `${KB_ROOT}/log.md`, content: logSeed(todayIso) },
-  ...FOLDERS.map((folder) => ({ path: `${KB_ROOT}/${folder.name}/index.md`, content: folderIndex(folder) })),
+  ...KB_FOLDERS.map((folder) => ({ path: `${KB_ROOT}/${folder.name}/index.md`, content: folderIndex(folder) })),
   { path: `${KB_ROOT}/jargon/abbreviations.md`, content: abbreviationsSeed(todayIso) },
 ];
