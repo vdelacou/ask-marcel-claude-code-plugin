@@ -15,13 +15,16 @@
  */
 
 // --- src/infra/ ---
+import '../src/infra/binary-writer.ts';
 import '../src/infra/clock.ts';
 import '../src/infra/command-runner.ts';
+import '../src/infra/file-lister.ts';
 import '../src/infra/file-probe.ts';
 import '../src/infra/file-reader.ts';
 import '../src/infra/file-state-store.ts';
 import '../src/infra/file-writer.ts';
 import '../src/infra/logger.ts';
+import '../src/infra/office.ts';
 
 // --- src/composition/ ---
 import '../src/composition/build-deps.ts';
