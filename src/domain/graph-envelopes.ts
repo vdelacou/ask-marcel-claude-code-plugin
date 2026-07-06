@@ -20,6 +20,15 @@ export const parseEnvelope = (json: string): Result<unknown, string> => {
   }
 };
 
+// Bare-JSON parse for tools that emit a plain value (e.g. qmd search --json returns an array).
+export const parseJson = (json: string): Result<unknown, string> => {
+  try {
+    return ok(JSON.parse(json));
+  } catch {
+    return err('invalid json');
+  }
+};
+
 const emailDomain = (email: string): string => email.slice(email.indexOf('@') + 1).toLowerCase();
 
 export const extractCurrentUser = (data: unknown): Result<CurrentUser, string> => {

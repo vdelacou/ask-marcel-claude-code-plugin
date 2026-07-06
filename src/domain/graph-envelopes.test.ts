@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { extractCurrentUser, extractManager, extractMessages, extractRelevantPeople, extractSentMetas, extractUsers, parseEnvelope } from './graph-envelopes.ts';
+import { extractCurrentUser, extractManager, extractMessages, extractRelevantPeople, extractSentMetas, extractUsers, parseEnvelope, parseJson } from './graph-envelopes.ts';
 import { unwrap } from './result.ts';
 
 const envelope = (data: unknown): string => JSON.stringify({ ok: true, data });
@@ -182,5 +182,10 @@ describe('graph envelopes', () => {
     expect(extractUsers(null)).toEqual([]);
     expect(extractRelevantPeople({ value: 'nope' })).toEqual([]);
     expect(extractManager('nope')).toBeUndefined();
+  });
+
+  test('parseJson returns the bare parsed value, or a typed error on malformed input', () => {
+    expect(parseJson('[{"a":1}]')).toEqual({ ok: true, value: [{ a: 1 }] });
+    expect(parseJson('not json')).toEqual({ ok: false, error: 'invalid json' });
   });
 });
