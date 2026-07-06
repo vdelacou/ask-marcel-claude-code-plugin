@@ -1,18 +1,19 @@
+import { decodeBase64 } from '../domain/base64.ts';
 import { emailIdSegment } from '../domain/bundle-path.ts';
 import { extractMarkdown, extractThreadMessages } from '../domain/email-thread.ts';
 import type { ThreadMessage } from '../domain/email-thread.ts';
-import { parseEnvelope } from '../domain/graph-envelopes.ts';
-import { extractAttachments } from '../domain/mail-attachments.ts';
+import { extractAttachments, extractBase64 } from '../domain/mail-attachments.ts';
 import type { AttachmentMeta } from '../domain/mail-attachments.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
 import type { RunId } from '../domain/run-id.ts';
-import { extractSharepointLinks } from '../domain/sharepoint-links.ts';
-import type { SharepointLink } from '../domain/sharepoint-links.ts';
+import { extractSharepointLinks, isResolvedLink } from '../domain/sharepoint-links.ts';
+import type { ErroredLink, ResolvedLink, SharepointLink } from '../domain/sharepoint-links.ts';
 import { toSlug } from '../domain/slug.ts';
-import type { CommandOutput, CommandRunner, RunError } from './ports/command-runner.ts';
+import type { BinaryWriter } from './ports/binary-writer.ts';
 import type { FileWriter, WriteError } from './ports/file-writer.ts';
 import type { Logger } from './ports/logger.ts';
+import type { Office, OfficeError } from './ports/office.ts';
 
 export type BundleRequest = { readonly runId: RunId; readonly emailId: string; readonly conversationId: string };
 
@@ -22,9 +23,12 @@ export type BundleSummary = { readonly emailId: string; readonly conversationId:
 
 export type FetchEmailBundle = (request: BundleRequest) => Promise<Result<BundleSummary, BundleError>>;
 
-type Deps = { readonly runner: CommandRunner; readonly writer: FileWriter; readonly logger: Logger };
+type Deps = { readonly office: Office; readonly writer: FileWriter; readonly binaryWriter: BinaryWriter; readonly logger: Logger };
 
 type AttachmentArtifact = AttachmentMeta & { readonly path?: string; readonly status: 'converted' | 'failed' | 'image' };
+
+// A resolved SharePoint link, once downloaded, carries its bundle path + conversion status; an errored link is recorded as-is.
+type SharepointArtifact = (ResolvedLink & { readonly path?: string; readonly status: 'converted' | 'failed' }) | ErroredLink;
 
 type ManifestEntry = {
   readonly order: number;
@@ -37,63 +41,33 @@ type ManifestEntry = {
   readonly status: 'converted' | 'failed';
   readonly attachments: ReadonlyArray<AttachmentArtifact>;
   readonly attachmentsError?: string;
-  readonly sharepointDocs: ReadonlyArray<SharepointLink>;
+  readonly sharepointDocs: ReadonlyArray<SharepointArtifact>;
   readonly sharepointError?: string;
 };
 
 type FileToWrite = { readonly path: string; readonly content: string };
 
-type Converted = { readonly entry: ManifestEntry; readonly files: ReadonlyArray<FileToWrite> };
+type BinaryToWrite = { readonly path: string; readonly bytes: Uint8Array };
+
+type Converted = { readonly entry: ManifestEntry; readonly files: ReadonlyArray<FileToWrite>; readonly binaries: ReadonlyArray<BinaryToWrite> };
 
 const pad = (value: number): string => String(value).padStart(2, '0');
 
-const threadArgs = (conversationId: string): ReadonlyArray<string> => [
-  'list-conversation-messages',
-  '--conversation-id',
-  conversationId,
-  '--select',
-  'id,subject,from,receivedDateTime,hasAttachments',
-  '--output',
-  'json',
-];
+const threadParams = (conversationId: string): Record<string, string> => ({ conversationId, select: 'id,subject,from,receivedDateTime,hasAttachments' });
 
-const markdownArgs = (messageId: string): ReadonlyArray<string> => ['convert-mail-to-markdown', '--message-id', messageId, '--inline-images', 'false', '--output', 'json'];
+const attachmentParams = (messageId: string): Record<string, string> => ({ messageId, select: 'id,name,contentType,size,isInline' });
 
-const attachmentArgs = (messageId: string): ReadonlyArray<string> => [
-  'list-mail-attachments',
-  '--message-id',
-  messageId,
-  '--select',
-  'id,name,contentType,size,isInline',
-  '--output',
-  'json',
-];
-
-const readAttachmentArgs = (messageId: string, attachmentId: string): ReadonlyArray<string> => [
-  'read-mail-attachment',
-  '--message-id',
-  messageId,
-  '--attachment-id',
-  attachmentId,
-  '--output',
-  'json',
-];
-
-const readMarkdown = (run: Result<CommandOutput, RunError>): Result<string, string> => {
+// The library returns the command's data object directly (no CLI envelope, no exit code):
+// a failed command is an OfficeError, a rendered body is `data.text`.
+const readMarkdown = (run: Result<unknown, OfficeError>): Result<string, string> => {
   if (!run.ok) return err(run.error.message);
-  if (run.value.exitCode !== 0) return err(`exited ${run.value.exitCode}`);
-  const parsed = parseEnvelope(run.value.stdout);
-  if (!parsed.ok) return err(parsed.error);
-  return extractMarkdown(parsed.value);
+  return extractMarkdown(run.value);
 };
 
 const fetchThread = async (deps: Deps, conversationId: string): Promise<Result<ReadonlyArray<ThreadMessage>, BundleError>> => {
-  const run = await deps.runner.run('ask-marcel-office', threadArgs(conversationId));
+  const run = await deps.office.execute('list-conversation-messages', threadParams(conversationId));
   if (!run.ok) return err({ kind: 'thread-fetch-failed', message: run.error.message });
-  if (run.value.exitCode !== 0) return err({ kind: 'thread-fetch-failed', message: `exited ${run.value.exitCode}` });
-  const parsed = parseEnvelope(run.value.stdout);
-  if (!parsed.ok) return err({ kind: 'thread-fetch-failed', message: parsed.error });
-  return ok(extractThreadMessages(parsed.value));
+  return ok(extractThreadMessages(run.value));
 };
 
 type ListedAttachments = { readonly attachments: ReadonlyArray<AttachmentMeta>; readonly error?: string };
@@ -101,43 +75,34 @@ type ListedAttachments = { readonly attachments: ReadonlyArray<AttachmentMeta>; 
 // A listing hiccup on one message must not sink the whole bundle: the failure is recorded, not thrown.
 const listAttachments = async (deps: Deps, message: ThreadMessage): Promise<ListedAttachments> => {
   if (!message.hasAttachments) return { attachments: [] };
-  const run = await deps.runner.run('ask-marcel-office', attachmentArgs(message.id));
+  const run = await deps.office.execute('list-mail-attachments', attachmentParams(message.id));
   if (!run.ok) return { attachments: [], error: run.error.message };
-  if (run.value.exitCode !== 0) return { attachments: [], error: `exited ${run.value.exitCode}` };
-  const parsed = parseEnvelope(run.value.stdout);
-  if (!parsed.ok) return { attachments: [], error: parsed.error };
-  return { attachments: extractAttachments(parsed.value) };
+  return { attachments: extractAttachments(run.value) };
 };
-
-const sharepointArgs = (messageId: string): ReadonlyArray<string> => ['extract-sharepoint-links-in-mail', '--message-id', messageId, '--output', 'json'];
 
 type ListedLinks = { readonly links: ReadonlyArray<SharepointLink>; readonly error?: string };
 
 // Runs for every message (links can sit in any body), and stays resilient like the attachment listing.
 const listSharepointLinks = async (deps: Deps, message: ThreadMessage): Promise<ListedLinks> => {
-  const run = await deps.runner.run('ask-marcel-office', sharepointArgs(message.id));
+  const run = await deps.office.execute('extract-sharepoint-links-in-mail', { messageId: message.id });
   if (!run.ok) return { links: [], error: run.error.message };
-  if (run.value.exitCode !== 0) return { links: [], error: `exited ${run.value.exitCode}` };
-  const parsed = parseEnvelope(run.value.stdout);
-  if (!parsed.ok) return { links: [], error: parsed.error };
-  return { links: extractSharepointLinks(parsed.value) };
+  return { links: extractSharepointLinks(run.value) };
 };
 
-const getAttachmentArgs = (messageId: string, attachmentId: string, outputPath: string): ReadonlyArray<string> => [
-  'get-mail-attachment',
-  '--message-id',
-  messageId,
-  '--attachment-id',
-  attachmentId,
-  '--output-path',
-  outputPath,
-  '--output',
-  'json',
-];
+type RenderedLink = { readonly artifact: SharepointArtifact; readonly file?: FileToWrite };
 
-type RenderedAttachment = { readonly artifact: AttachmentArtifact; readonly file?: FileToWrite };
+// Each resolved link is downloaded to markdown; an errored link is recorded untouched (nothing to fetch).
+const downloadSharepointDoc = async (deps: Deps, order: number, index: number, link: ResolvedLink): Promise<RenderedLink> => {
+  const markdown = readMarkdown(await deps.office.execute('download-drive-item-as-markdown', { driveId: link.driveId, itemId: link.itemId }));
+  if (!markdown.ok) return { artifact: { ...link, status: 'failed' } };
+  const path = `sharepoint/${pad(order)}-${pad(index + 1)}-${toSlug(link.name)}.md`;
+  return { artifact: { ...link, path, status: 'converted' }, file: { path, content: markdown.value } };
+};
 
-const commandSucceeded = (run: Result<CommandOutput, RunError>): boolean => run.ok && run.value.exitCode === 0 && parseEnvelope(run.value.stdout).ok;
+const renderSharepointLink = (deps: Deps, order: number, index: number, link: SharepointLink): Promise<RenderedLink> =>
+  isResolvedLink(link) ? downloadSharepointDoc(deps, order, index, link) : Promise.resolve({ artifact: link });
+
+type RenderedAttachment = { readonly artifact: AttachmentArtifact; readonly file?: FileToWrite; readonly binary?: BinaryToWrite };
 
 // Filesystem-safe image name: slug the base, take the extension from the (authoritative) content type.
 const imageBundlePath = (order: number, index: number, meta: AttachmentMeta): string => {
@@ -147,35 +112,41 @@ const imageBundlePath = (order: number, index: number, meta: AttachmentMeta): st
   return `images/${pad(order)}-${pad(index + 1)}-${stem}.${extension}`;
 };
 
-// Images 415 on the text converter — get-mail-attachment writes the bytes straight into the bundle via --output-path.
-const fetchImage = async (deps: Deps, bundleDir: string, messageId: string, order: number, meta: AttachmentMeta, index: number): Promise<AttachmentArtifact> => {
+// Images 415 on the text converter — get-mail-attachment returns the bytes as a base64 mirror,
+// which we decode and hand to the BinaryWriter (replacing the CLI's --output-path side effect).
+const fetchImage = async (deps: Deps, messageId: string, order: number, meta: AttachmentMeta, index: number): Promise<RenderedAttachment> => {
+  const run = await deps.office.execute('get-mail-attachment', { messageId, attachmentId: meta.attachmentId });
+  if (!run.ok) return { artifact: { ...meta, status: 'failed' } };
+  const base64 = extractBase64(run.value);
+  if (!base64.ok) return { artifact: { ...meta, status: 'failed' } };
+  const decoded = decodeBase64(base64.value);
+  if (!decoded.ok) return { artifact: { ...meta, status: 'failed' } };
   const path = imageBundlePath(order, index, meta);
-  const run = await deps.runner.run('ask-marcel-office', getAttachmentArgs(messageId, meta.attachmentId, `${bundleDir}/${path}`));
-  if (!commandSucceeded(run)) return { ...meta, status: 'failed' };
-  return { ...meta, path, status: 'image' };
+  return { artifact: { ...meta, path, status: 'image' }, binary: { path, bytes: decoded.value } };
 };
 
 const convertDocument = async (deps: Deps, messageId: string, order: number, meta: AttachmentMeta, index: number): Promise<RenderedAttachment> => {
-  const markdown = readMarkdown(await deps.runner.run('ask-marcel-office', readAttachmentArgs(messageId, meta.attachmentId)));
+  const markdown = readMarkdown(await deps.office.execute('read-mail-attachment', { messageId, attachmentId: meta.attachmentId }));
   if (!markdown.ok) return { artifact: { ...meta, status: 'failed' } };
   const path = `attachments/${pad(order)}-${pad(index + 1)}-${toSlug(meta.name)}.md`;
   return { artifact: { ...meta, path, status: 'converted' }, file: { path, content: markdown.value } };
 };
 
-// Images ride out as files (get-mail-attachment); everything else converts to markdown text (read-mail-attachment).
-const convertAttachment = async (deps: Deps, bundleDir: string, messageId: string, order: number, meta: AttachmentMeta, index: number): Promise<RenderedAttachment> => {
-  if (meta.contentType.startsWith('image/')) return { artifact: await fetchImage(deps, bundleDir, messageId, order, meta, index) };
-  return convertDocument(deps, messageId, order, meta, index);
-};
+// Images ride out as decoded bytes (get-mail-attachment); everything else converts to markdown text (read-mail-attachment).
+const convertAttachment = (deps: Deps, messageId: string, order: number, meta: AttachmentMeta, index: number): Promise<RenderedAttachment> =>
+  meta.contentType.startsWith('image/') ? fetchImage(deps, messageId, order, meta, index) : convertDocument(deps, messageId, order, meta, index);
 
 const definedFile = (file: FileToWrite | undefined): file is FileToWrite => file !== undefined;
 
-const convertMessage = async (deps: Deps, bundleDir: string, message: ThreadMessage, order: number): Promise<Converted> => {
+const definedBinary = (binary: BinaryToWrite | undefined): binary is BinaryToWrite => binary !== undefined;
+
+const convertMessage = async (deps: Deps, message: ThreadMessage, order: number): Promise<Converted> => {
   const bodyPath = `messages/${pad(order)}-${message.id}.md`;
-  const markdown = readMarkdown(await deps.runner.run('ask-marcel-office', markdownArgs(message.id)));
+  const markdown = readMarkdown(await deps.office.execute('convert-mail-to-markdown', { messageId: message.id, inlineImages: 'false' }));
   const listed = await listAttachments(deps, message);
-  const rendered = await Promise.all(listed.attachments.map((meta, index) => convertAttachment(deps, bundleDir, message.id, order, meta, index)));
+  const rendered = await Promise.all(listed.attachments.map((meta, index) => convertAttachment(deps, message.id, order, meta, index)));
   const sharepoint = await listSharepointLinks(deps, message);
+  const renderedLinks = await Promise.all(sharepoint.links.map((link, index) => renderSharepointLink(deps, order, index, link)));
   const entry: ManifestEntry = {
     order,
     messageId: message.id,
@@ -187,18 +158,23 @@ const convertMessage = async (deps: Deps, bundleDir: string, message: ThreadMess
     status: markdown.ok ? 'converted' : 'failed',
     attachments: rendered.map((item) => item.artifact),
     ...(listed.error !== undefined ? { attachmentsError: listed.error } : {}),
-    sharepointDocs: sharepoint.links,
+    sharepointDocs: renderedLinks.map((item) => item.artifact),
     ...(sharepoint.error !== undefined ? { sharepointError: sharepoint.error } : {}),
   };
   const bodyFile = markdown.ok ? [{ path: bodyPath, content: markdown.value }] : [];
-  const files = [...bodyFile, ...rendered.map((item) => item.file).filter(definedFile)];
-  return { entry, files };
+  const files = [...bodyFile, ...rendered.map((item) => item.file).filter(definedFile), ...renderedLinks.map((item) => item.file).filter(definedFile)];
+  const binaries = rendered.map((item) => item.binary).filter(definedBinary);
+  return { entry, files, binaries };
 };
 
-const writeFiles = async (writer: FileWriter, bundleDir: string, converted: ReadonlyArray<Converted>): Promise<Result<void, WriteError>> => {
-  for (const { files } of converted) {
+const writeFiles = async (deps: Deps, bundleDir: string, converted: ReadonlyArray<Converted>): Promise<Result<void, WriteError>> => {
+  for (const { files, binaries } of converted) {
     for (const file of files) {
-      const written = await writer.write(`${bundleDir}/${file.path}`, file.content);
+      const written = await deps.writer.write(`${bundleDir}/${file.path}`, file.content);
+      if (!written.ok) return err(written.error);
+    }
+    for (const binary of binaries) {
+      const written = await deps.binaryWriter.write(`${bundleDir}/${binary.path}`, binary.bytes);
       if (!written.ok) return err(written.error);
     }
   }
@@ -210,11 +186,11 @@ export const createFetchEmailBundle =
   async (request) => {
     const thread = await fetchThread(deps, request.conversationId);
     if (!thread.ok) return err(thread.error);
-    // Bundle messages render serially so the CLI ladder is deterministic; cross-email parallelism lives in the research fan-out.
+    // Bundle messages render serially so the command ladder is deterministic; cross-email parallelism lives in the research fan-out.
     const bundleDir = `data/scratch/${request.runId}/${emailIdSegment(request.emailId)}/bundle`;
     const converted: Converted[] = [];
-    for (const [index, message] of thread.value.entries()) converted.push(await convertMessage(deps, bundleDir, message, index + 1));
-    const filesWritten = await writeFiles(deps.writer, bundleDir, converted);
+    for (const [index, message] of thread.value.entries()) converted.push(await convertMessage(deps, message, index + 1));
+    const filesWritten = await writeFiles(deps, bundleDir, converted);
     if (!filesWritten.ok) return err(filesWritten.error);
     const manifest = { emailId: request.emailId, conversationId: request.conversationId, messages: converted.map((item) => item.entry) };
     const manifestWritten = await deps.writer.write(`${bundleDir}/manifest.json`, JSON.stringify(manifest, null, 2));

@@ -24,3 +24,6 @@ export const extractSharepointLinks = (data: unknown): ReadonlyArray<SharepointL
   if (!isRecord(data) || !Array.isArray(data['links'])) return [];
   return data['links'].filter(isRecord).map(toLink).filter(isLink);
 };
+
+/** Only a resolved link (driveId + itemId) can be downloaded; an errored link is recorded as-is. */
+export const isResolvedLink = (link: SharepointLink): link is ResolvedLink => 'driveId' in link;
