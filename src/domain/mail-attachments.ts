@@ -1,4 +1,6 @@
 import { asString, isRecord } from './graph-envelopes.ts';
+import { err, ok } from './result.ts';
+import type { Result } from './result.ts';
 
 export type AttachmentMeta = {
   readonly attachmentId: string;
@@ -28,4 +30,12 @@ const isAttachmentMeta = (attachment: AttachmentMeta | undefined): attachment is
 export const extractAttachments = (data: unknown): ReadonlyArray<AttachmentMeta> => {
   if (!isRecord(data) || !Array.isArray(data['value'])) return [];
   return data['value'].filter(isRecord).map(toAttachmentMeta).filter(isAttachmentMeta);
+};
+
+/** get-mail-attachment envelope: a single attachment resource whose bytes live in the `base64` mirror of contentBytes. */
+export const extractBase64 = (data: unknown): Result<string, string> => {
+  if (!isRecord(data)) return err('attachment-bytes: unexpected shape');
+  const base64 = asString(data['base64']);
+  if (base64 === undefined) return err('attachment-bytes: missing base64');
+  return ok(base64);
 };
