@@ -6,6 +6,24 @@ import unicornPlugin from 'eslint-plugin-unicorn';
 import globals from 'globals';
 import tsPlugin from 'typescript-eslint';
 
+// `mock` from `bun:test` is process-global once installed and leaks into every other
+// test file the runner loads. Use dependency injection instead. Shared so the
+// M365-library fence below can restate it without dropping it.
+const BUN_TEST_MOCK = {
+  name: 'bun:test',
+  importNames: ['mock'],
+  message: '`mock` from bun:test is forbidden — it leaks across test files. Use dependency injection: refactor the production code to accept the SDK as a parameter, then pass a fake at construction.',
+};
+
+// SPEC §15.1 R3: the send-capable ask-marcel-office-cli library is imported ONLY in the
+// composition root and the single Office adapter (src/infra/office.ts). Everywhere else
+// reaches M365 through the Office port. scripts/ included — entries call the composition
+// root, never the library directly.
+const M365_LIBRARY_FENCE = {
+  group: ['ask-marcel-office-cli', 'ask-marcel-office-cli/*'],
+  message: 'Import ask-marcel-office-cli only in src/composition/** or src/infra/office.ts (SPEC §15.1 R3). Everywhere else, use the Office port.',
+};
+
 /** @type {import('eslint').Linter.Config[]} */
 export default [
   pluginJs.configs.recommended,
@@ -19,19 +37,27 @@ export default [
       'no-console': ['error'],
       'prefer-template': 'error',
       quotes: ['error', 'single', { avoidEscape: true }],
-      // `mock` from `bun:test` is process-global once installed and leaks into
-      // every other test file the runner loads. Use dependency injection
-      // (createXFromApi or installFetchMock) instead. See references/testing-infra.md.
-      'no-restricted-imports': ['error', {
-        paths: [{
-          name: 'bun:test',
-          importNames: ['mock'],
-          message:
-            '`mock` from bun:test is forbidden — it leaks across test files. Use dependency injection: refactor the production code to accept the SDK as a parameter, then pass a fake at construction.',
-        }],
-      }],
+      // no-mock (all files) + M365-library fence (all files; relaxed for the boundary below).
+      'no-restricted-imports': ['error', { paths: [BUN_TEST_MOCK], patterns: [M365_LIBRARY_FENCE] }],
       '@typescript-eslint/explicit-function-return-type': ['error', { allowExpressions: true, allowTypedFunctionExpressions: true }],
       '@typescript-eslint/consistent-type-definitions': ['error', 'type'],
+    },
+  },
+  {
+    // The M365-access boundary (R3): the composition root, the Office adapter, and the
+    // adapter's own test may import the library. The no-mock restriction still holds here.
+    files: ['src/composition/**/*.ts', 'src/infra/office.ts', 'src/infra/office.test.ts'],
+    rules: { 'no-restricted-imports': ['error', { paths: [BUN_TEST_MOCK] }] },
+  },
+  {
+    // SPEC §15.1 R1: the ask-marcel-office binary is never spawned. All M365 access is the
+    // Office port (CommandRunner survives for qmd/bun only). Guards against a regressed spawn.
+    files: ['src/**/*.ts', 'scripts/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        { selector: "Literal[value='ask-marcel-office']", message: 'The ask-marcel-office binary is never spawned (SPEC §15.1 R1). Reach Microsoft 365 through the Office port.' },
+      ],
     },
   },
   {
