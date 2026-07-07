@@ -8,6 +8,7 @@ export type ThreadMessage = {
   readonly fromAddress: string;
   readonly receivedDateTime: string;
   readonly hasAttachments: boolean;
+  readonly webLink?: string;
 };
 
 const toThreadMessage = (message: Record<string, unknown>): ThreadMessage | undefined => {
@@ -16,12 +17,14 @@ const toThreadMessage = (message: Record<string, unknown>): ThreadMessage | unde
   const emailAddress = isRecord(fromField) ? fromField['emailAddress'] : undefined;
   const address = isRecord(emailAddress) ? asString(emailAddress['address']) : undefined;
   if (id === undefined || address === undefined) return undefined;
+  const webLink = asString(message['webLink']);
   return {
     id,
     subject: asString(message['subject']) ?? '(no subject)',
     fromAddress: address.toLowerCase(),
     receivedDateTime: asString(message['receivedDateTime']) ?? '',
     hasAttachments: message['hasAttachments'] === true,
+    ...(webLink !== undefined ? { webLink } : {}),
   };
 };
 

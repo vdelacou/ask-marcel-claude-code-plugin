@@ -41,7 +41,7 @@ For each `researched` email, in urgency order:
 
 13. **Create the draft.** Write the approved HTML body to a scratch file, then `bun "${CLAUDE_PLUGIN_ROOT}/scripts/draft-apply.ts" --run-id <runId> --email-id <id> --conversation-id <cid> --reply-to <messageId> --subject "<s>" --body-file <path> --json`. It refuses unless the email is `user_approved` (the code approval gate), searches Drafts by conversation, then creates a threaded reply-all draft or patches the existing one - never sends, never duplicates. It advances `user_approved -> draft_created` itself.
 
-14. **Capture.** Drain this email's KB queue: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-queue.ts" drain --run-id <runId> --json`, and land each fact candidate via a `kb-curator` agent. Advance `draft_created -> kb_captured -> done`.
+14. **Capture.** Drain this email's KB queue: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-queue.ts" drain --run-id <runId> --json`, and land each fact candidate via a `kb-curator` agent. Cite the source email as a **clickable markdown link** - `[Source email, <sender> <date>](<webLink>)` from the candidate's `webLink` - so the user can open and compare it; fall back to a plain `email <runId> (<emailId>)` reference only when `webLink` is absent. Advance `draft_created -> kb_captured -> done`.
 
 ## Phase 5 - wrap-up
 

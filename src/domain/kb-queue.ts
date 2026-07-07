@@ -5,6 +5,7 @@ import { asString, isRecord } from './graph-envelopes.ts';
 export type KbFact = {
   readonly kind: 'fact';
   readonly emailId: string;
+  readonly webLink?: string;
   readonly folder: string;
   readonly slug: string;
   readonly title: string;
@@ -26,7 +27,8 @@ const parseFact = (record: Record<string, unknown>): KbFact | undefined => {
   const title = asString(record['title']);
   const content = asString(record['content']);
   if (emailId === undefined || folder === undefined || slug === undefined || title === undefined || content === undefined) return undefined;
-  return { kind: 'fact', emailId, folder, slug, title, content, rationale: asString(record['rationale']) ?? '' };
+  const webLink = asString(record['webLink']);
+  return { kind: 'fact', emailId, folder, slug, title, content, rationale: asString(record['rationale']) ?? '', ...(webLink !== undefined ? { webLink } : {}) };
 };
 
 const parseJargon = (record: Record<string, unknown>): KbJargon | undefined => {

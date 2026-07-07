@@ -35,6 +35,7 @@ type ManifestEntry = {
   readonly messageId: string;
   readonly subject: string;
   readonly from: string;
+  readonly webLink?: string;
   readonly receivedDateTime: string;
   readonly hasAttachments: boolean;
   readonly path: string;
@@ -55,7 +56,7 @@ const pad = (value: number): string => String(value).padStart(2, '0');
 
 // top:'50' overrides the library's small default page so a long thread is captured whole - otherwise
 // the newest messages (incl. the one being replied to) can fall off and force a lossy search-snippet.
-const threadParams = (conversationId: string): Record<string, string> => ({ conversationId, top: '50', select: 'id,subject,from,receivedDateTime,hasAttachments' });
+const threadParams = (conversationId: string): Record<string, string> => ({ conversationId, top: '50', select: 'id,subject,from,receivedDateTime,hasAttachments,webLink' });
 
 const attachmentParams = (messageId: string): Record<string, string> => ({ messageId, select: 'id,name,contentType,size,isInline' });
 
@@ -154,6 +155,7 @@ const convertMessage = async (deps: Deps, message: ThreadMessage, order: number)
     messageId: message.id,
     subject: message.subject,
     from: message.fromAddress,
+    ...(message.webLink !== undefined ? { webLink: message.webLink } : {}),
     receivedDateTime: message.receivedDateTime,
     hasAttachments: message.hasAttachments,
     path: bodyPath,

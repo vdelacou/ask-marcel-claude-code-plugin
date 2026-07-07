@@ -102,7 +102,14 @@ describe('fetch-email-bundle', () => {
   test('researching an approved email pulls its whole thread, writes each message as markdown, and manifests them in chronological order', async () => {
     // thread comes back UNORDERED (reply before original) to prove client-side chronological sort
     const thread = [
-      { id: 'msg-2', subject: 'RE: Q3 envelope', from: { emailAddress: { name: 'Jane', address: 'Jane@X.com' } }, receivedDateTime: '2026-07-02T10:00:00Z', hasAttachments: false },
+      {
+        id: 'msg-2',
+        subject: 'RE: Q3 envelope',
+        from: { emailAddress: { name: 'Jane', address: 'Jane@X.com' } },
+        receivedDateTime: '2026-07-02T10:00:00Z',
+        hasAttachments: false,
+        webLink: 'https://outlook.office365.com/owa/?ItemID=msg-2',
+      },
       {
         id: 'msg-1',
         subject: 'Q3 envelope',
@@ -118,7 +125,7 @@ describe('fetch-email-bundle', () => {
 
     // 1. correct command ladder, message by message: convert body, list attachments (only when present), extract SharePoint links
     expect(officeLog).toEqual([
-      { command: 'list-conversation-messages', params: { conversationId: 'conv-abc', top: '50', select: 'id,subject,from,receivedDateTime,hasAttachments' } },
+      { command: 'list-conversation-messages', params: { conversationId: 'conv-abc', top: '50', select: 'id,subject,from,receivedDateTime,hasAttachments,webLink' } },
       { command: 'convert-mail-to-markdown', params: { messageId: 'msg-1', inlineImages: 'false' } },
       { command: 'list-mail-attachments', params: { messageId: 'msg-1', select: 'id,name,contentType,size,isInline' } },
       { command: 'extract-sharepoint-links-in-mail', params: { messageId: 'msg-1' } },
@@ -154,6 +161,7 @@ describe('fetch-email-bundle', () => {
           messageId: 'msg-2',
           subject: 'RE: Q3 envelope',
           from: 'jane@x.com',
+          webLink: 'https://outlook.office365.com/owa/?ItemID=msg-2',
           receivedDateTime: '2026-07-02T10:00:00Z',
           hasAttachments: false,
           path: 'messages/02-msg-2.md',

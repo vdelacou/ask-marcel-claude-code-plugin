@@ -8,12 +8,14 @@ describe('kb-queue', () => {
     const fact: KbCandidate = {
       kind: 'fact',
       emailId: 'm1',
+      webLink: 'https://outlook.office365.com/owa/?ItemID=m1',
       folder: 'people',
       slug: 'jane-boss',
       title: 'Jane Boss',
       content: 'VP of Retail',
       rationale: 'named as approver in the thread',
     };
+    // the webLink round-trips so the KB citation can link back to the source email
     expect(parseQueue(serializeCandidate(fact))).toEqual([fact]);
   });
 
