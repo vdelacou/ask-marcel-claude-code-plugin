@@ -31,9 +31,11 @@ v0.1 note: you can run this from any working directory - the entry scripts resol
 
 5. **Seed the KB from the directory.** Propose `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-seed.ts"` - creates person/org pages from your manager, direct reports, and top colleagues; never overwrites; capped at 40 pages; every page logged in `data/kb/log.md`. Report created / skipped / dropped counts.
 
-6. **Re-run the doctor.** Show the final board. Anything still failing gets one honest line on why (including the pending-milestone items).
+6. **Capture the email signature (optional).** Propose `bun "${CLAUDE_PLUGIN_ROOT}/scripts/capture-signature.ts" --json` - it lifts the `id="Signature"` block from a recent sent email, inlines the logo images as base64, and writes `data/profile/draft-template.html` (the inbox-zero drafting step wraps each reply in it, so drafts render in the user's font + signature). On a yes, run it and report `imageCount` + the path; on `no-signature`, say so - the user can send themselves a signature-only email and re-run. Note the caveat: base64 logos render for the user in Outlook but some recipient clients block `data:` images.
 
-7. **Offer scheduling (optional).** Propose two recurring runs via Claude Code scheduled tasks, each registered only on an explicit yes (never preemptively):
+7. **Re-run the doctor.** Show the final board. Anything still failing gets one honest line on why (including the pending-milestone items).
+
+8. **Offer scheduling (optional).** Propose two recurring runs via Claude Code scheduled tasks, each registered only on an explicit yes (never preemptively):
    - **Weekly kb-gardener** (e.g. Monday 07:00): runs the kb-gardener skill (lint + reindex + curation plan) to keep the KB healthy.
    - **Weekday pre-research** (a time the user picks, e.g. 06:30): runs `inbox-zero` in pre-research mode, so the interactive morning session starts with every needing-a-reply email already researched.
    Use the schedule mechanism (the `schedule` skill / scheduled tasks). Report what was registered; skip silently if the user declines.

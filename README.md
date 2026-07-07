@@ -84,6 +84,8 @@ data/              # runtime KB / profile / scratch — gitignored, never leaves
 
 `bun scripts/login.ts` — authenticate to Microsoft 365 via the library's browser sign-in (cached → refresh → Playwright). One-time prerequisite: `bunx playwright install`.
 
+`bun scripts/capture-signature.ts [--json]` — SPEC §13 signature capture: lift the `id="Signature"` block from a recent sent email, inline its logo images as base64, and write `data/profile/draft-template.html` (the inbox-zero drafting step wraps each reply in it, so drafts carry the user's font + signature). Read-only on the mailbox.
+
 ## Using as a plugin
 
 The entry scripts resolve their own location via `${CLAUDE_PLUGIN_ROOT}`, so **the plugin runs from any working directory**. `data/` (KB, profile, scratch) lives in the folder you launch Claude Code from, not the plugin cache; set `ASK_MARCEL_HOME=/path` to pin it to a fixed location instead.
