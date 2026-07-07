@@ -15,7 +15,7 @@ Deterministic where possible: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` do the 
 
 3. **Triage fan-out (Phase 2), by conversation.** Group the kept emails by `conversationId` (every candidate carries it) so each thread is triaged once, not per message. Per thread launch ONE `triage-scout` agent (batches of 4) on its **latest** message (the max `receivedDateTime` in the group), with that candidate block + the user identity line; the scout judges whether the THREAD needs a reply from the user. A scout that returns garbage is retried once, then recorded `needs_reply: true, urgency: low, reason: "scout failed - defaulting to keep"`. For each thread advance its latest (representative) email `scanned -> triaged`, and advance every other email in the thread `scanned -> triaged -> skipped` (one reply covers the whole thread).
 
-4. **Gate 1 - the user decides, per thread.** Show the triage table with **one row per conversation** (thread subject, latest sender, urgency, reason; needs-reply first, by urgency) - never one row per message. AskUserQuestion (multiSelect, <=4 options/question, <=4 questions/call): "Skip which of these?"; scout-negative threads are listed for transparency and skipped unless rescued (rescuing approves the thread for one reply). Advance each kept thread's representative email `triaged -> approved | skipped`, then report the board by thread.
+4. **Gate 1 - the user decides, per thread.** Show the triage table with **one row per conversation** (thread subject, latest sender, urgency, reason; needs-reply first, by urgency) - never one row per message. AskUserQuestion (multiSelect, <=4 options/question, <=4 questions/call): "Skip which of these?"; scout-negative threads are listed for transparency and skipped unless rescued (rescuing approves the thread for one reply). Advance each kept thread's representative email one at a time - `bun "${CLAUDE_PLUGIN_ROOT}/scripts/state.ts" <runId> advance <emailId> <approved|skipped>` - pasting each `<emailId>` **literally** from its own table row. Never batch these through an inline `bun -e`/argv script (id transposition between rows is the classic failure) and never hand-edit `state.json`. These advances are commit points - `skipped` and `approved` have no rewind - so confirm each id before running. Then report the board by thread.
 
 ## Phase 3 - research (parallel)
 
@@ -35,7 +35,7 @@ For each `researched` email, in urgency order:
 
 10. **Draft.** In the main thread, write the reply using the voice-profile bucket voice (`data/profile/voice-profile.md`) and the thread/recipient language. Form the HTML body by substituting the reply into `data/profile/draft-template.html` at its `{{BODY}}` marker - the template carries the user's default font/color wrapper (Aptos 11pt, black) and their self-contained signature (logo images inlined as base64). If the template is absent, wrap the reply in `<div style="font-family: Aptos, Calibri, sans-serif; font-size: 11pt; color: #000000;">...</div>` and add a short text sign-off from `data/profile/user.md`. Advance `strategy_chosen -> drafted`.
 
-11. **Preflight.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/draft-preflight.ts"` must exit 0 (em-dashes and anti-style phrases are hard-blocked); rewrite until clean. Advance `drafted -> preflight_ok`.
+11. **Preflight.** Write the draft body to a scratch file, then run `bun "${CLAUDE_PLUGIN_ROOT}/scripts/draft-preflight.ts" --file <scratch-path> --subject "<subject>"` - it must exit 0 (em-dashes and anti-style phrases are hard-blocked). Always pass the body via `--file`: a bare positional path is ignored, the script then reads empty stdin, and an empty draft reports a false `clean`. Rewrite until clean, then advance `drafted -> preflight_ok`.
 
 12. **Approval gate.** Show the draft. AskUserQuestion: approve / request changes. On changes, revise and re-run preflight. On approve, advance `preflight_ok -> user_approved`.
 
@@ -62,7 +62,7 @@ Invoked headless (e.g. weekday mornings) so the interactive session starts with 
 
 ## Hard rules
 
-- Never advance state except through `${CLAUDE_PLUGIN_ROOT}/scripts/state.ts` - respect the domain's refusals.
+- Never advance state except through `${CLAUDE_PLUGIN_ROOT}/scripts/state.ts`, one email per call, ids pasted literally - never hand-edit `state.json`, never batch advances through an inline `bun -e`/argv script. Respect the domain's refusals.
 - Never send mail, mark read, move, archive, or delete - the only Microsoft write is an unsent draft, and only after the user's approval gate (step 12).
 - All Microsoft 365 access is `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` (the Office library) - never a raw `ask-marcel-office` command, never a Graph call (SPEC §15.1).
 - Every drop, skip, failure, low-confidence answer, and fallback is named in the report - no silent gaps.
