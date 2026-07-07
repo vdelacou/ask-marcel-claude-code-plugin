@@ -33,7 +33,7 @@ git config core.hooksPath .githooks   # nine-gate pre-commit + Conventional Comm
 
 | Command | What it does |
 |---|---|
-| `bun scripts/doctor.ts [--json]` | Setup report: bun & qmd versions, a live Microsoft 365 auth probe (a `get-current-user` through the library), the qmd `replu-kb` collection, and KB/profile presence — with a fix per failing check. Exit 0 with a report; exit 1 only on crash. |
+| `bun scripts/doctor.ts [--json]` | Setup report: bun & qmd versions, a live Microsoft 365 auth probe (a `get-current-user` through the library), the qmd `ask-marcel-kb` collection, and KB/profile presence — with a fix per failing check. Exit 0 with a report; exit 1 only on crash. |
 | `bun scripts/kb-init.ts [--json]` | Create the OKF knowledge-base skeleton under `data/kb/` (idempotent — an existing KB is never touched). |
 
 `LOG_LEVEL` (default `info`; the CLI entries quiet it to `error` unless explicitly set) controls the Winston logger.

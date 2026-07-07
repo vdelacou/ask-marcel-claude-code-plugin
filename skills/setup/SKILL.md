@@ -23,7 +23,7 @@ v0.1 note: you can run this from any working directory - the entry scripts resol
    | `qmd` | `bun install -g @tobilu/qmd`. First embed later downloads GGUF models (~700 MB) - warn once. |
    | `auth` | `bun "${CLAUDE_PLUGIN_ROOT}/scripts/login.ts"` (the library's browser sign-in; one-time `bunx playwright install` for the browser binaries). NEVER run it preemptively - only when the auth check failed and the user said yes (probe-first discipline). Microsoft 365 access is library-only; there is no `ask-marcel-office` binary to install or version-check (SPEC §15.1). |
    | `kb` | `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-init.ts"` - idempotent, never touches an existing KB. |
-   | `qmd-collection` | `qmd collection add data/kb --name replu-kb`, then `qmd context add 'qmd://replu-kb' "OKF knowledge base of the inbox-zero reply plugin (ask-marcel v2). People, orgs, projects, topics, decisions, meetings, jargon captured from the user's mail. Query FIRST before falling through to Microsoft 365."`, then `qmd update -c replu-kb && qmd embed -c replu-kb`. |
+   | `qmd-collection` | `qmd collection add data/kb --name ask-marcel-kb`, then `qmd context add 'qmd://ask-marcel-kb' "OKF knowledge base of the inbox-zero reply plugin (ask-marcel v2). People, orgs, projects, topics, decisions, meetings, jargon captured from the user's mail. Query FIRST before falling through to Microsoft 365."`, then `qmd update -c ask-marcel-kb && qmd embed -c ask-marcel-kb`. |
    | `voice-profile` | Not fixable here - route the user to the voice-profile skill ("build my voice profile"), which analyzes their sent mail and writes `data/profile/voice-profile.md`. Do not fake the file. |
    | `user-md` | Step 4 below. |
 

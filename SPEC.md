@@ -1,4 +1,4 @@
-# email-replu — Inbox-Zero Reply Plugin (SPEC v0.1 — for review)
+# ask-marcel — Inbox-Zero Reply Plugin (SPEC v0.1 — for review)
 
 A Claude Code **plugin** (skills alone can't ship hooks/agents — see §12) that triages the Outlook inbox, researches each email that needs an answer, drafts threaded replies in the user's voice, and grows a fresh **OKF-native knowledge base**. Read-mostly by design: the only writes to M365 are unsent drafts.
 
@@ -19,7 +19,7 @@ Builds on proven assets from `~/Documents/CODE/ask-marcel/ask-marcel-plugin` (po
 ## 1. Folder layout
 
 ```
-email-replu/
+ask-marcel/
 ├── .claude-plugin/plugin.json        # manifest — name: "ask-marcel" (v2 — collision note §14)
 ├── CLAUDE.md                         # dev guide (how to test, conventions)
 ├── SPEC.md                           # this file
@@ -84,7 +84,7 @@ email-replu/
 2. **qmd** present (≥2.5) → `bun install -g @tobilu/qmd`, then model warm-up note (~700 MB GGUF on first embed).
 3. **ask-marcel-office** present (≥2.0.0 — the binary was renamed from `ask-marcel` at v2; `create-reply-draft` still pending, target next release) → `npm i -g ask-marcel-office-cli` / `ask-marcel-office update`.
 4. **M365 auth** → probe with a cheap GET; only on failure propose `ask-marcel login`.
-5. **KB initialized** → if `data/kb/` missing: create tree + root `index.md` (okf_version) + `log.md` + per-folder `index.md`; `qmd collection add data/kb --name replu-kb`; `qmd context add 'qmd://replu-kb' "…"`; `qmd update && qmd embed`.
+5. **KB initialized** → if `data/kb/` missing: create tree + root `index.md` (okf_version) + `log.md` + per-folder `index.md`; `qmd collection add data/kb --name ask-marcel-kb`; `qmd context add 'qmd://ask-marcel-kb' "…"`; `qmd update && qmd embed`.
 6. **Voice profile exists** in `data/profile/` → if not, run `voice-profile` skill (§9).
 7. **KB seeding** (first run only): create person pages for the manager, direct reports, and top colleagues (`list-relevant-people`), plus organization pages derived from their email domains (Graph enrichment: title, manager links). ~20–40 small pages, `source: seed`; one `qmd update && qmd embed` at the end.
 8. **Scheduling** (optional, proposed at setup): register the weekly `kb-gardener` task, and the weekday **pre-research** run (time chosen by the user, e.g. 06:30) — both via Claude Code scheduled tasks.
@@ -238,7 +238,7 @@ Fresh bundle at `data/kb/` per **OKF v0.1** (github.com/GoogleCloudPlatform/know
 - **`people/team-<slug>.md`** (`type: team`): purpose, roster as links to person pages, parent org link.
 - **Identity resolution**: kb-curator matches people **by email address first** (any alias), slug second — the same human never gets two pages; org membership derived from domain when not explicit; Graph enrichment on creation (`get-user-manager`, title) when available.
 - **Graph consistency** (gardener): every person's `org`/`manager`/`assistant`/`delegates` links resolve and manager *chains* are traversable (no broken chain); duplicate-person detection (same email, different slugs) → merge; `last_contact` refreshed from mail metadata; stale commitments (past-date, likely fulfilled) flagged for review; `orgs/index.md` and `people/index.md` regenerated grouped by organization.
-- **qmd**: single collection `replu-kb`. Setup also offers to *remove or refresh* stale collections found in the shared index (currently `marcel-knowledge-base` 90d, `ask-marcel-canonical` 79d — they pollute unscoped searches); all plugin searches pass `-c replu-kb`.
+- **qmd**: single collection `ask-marcel-kb`. Setup also offers to *remove or refresh* stale collections found in the shared index (currently `marcel-knowledge-base` 90d, `ask-marcel-canonical` 79d — they pollute unscoped searches); all plugin searches pass `-c ask-marcel-kb`.
 
 **`kb-gardener` skill** (recurring — weekly scheduled task, plus on-demand):
 - Phase 1 (code, auto-apply): `kb-lint.ts` — OKF conformance, broken links, staleness >180d, orphans, duplicate slugs; `kb-index-gen.ts` refresh; report.
@@ -328,7 +328,7 @@ Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/
 
 | M | Deliverable | Proves |
 |---|---|---|
-| M0 ✅ 2026-07-04 | atelier-greenfield scaffold, walking skeleton (one state-machine transition through a use-case port), all 8 gates green. Interim manifest name `email-replu` (→ `ask-marcel` at ship, §14.1) | The engineering machine works |
+| M0 ✅ 2026-07-04 | atelier-greenfield scaffold, walking skeleton (one state-machine transition through a use-case port), all 8 gates green. Interim manifest name `ask-marcel` (→ `ask-marcel` at ship, §14.1) | The engineering machine works |
 | M1 ✅ 2026-07-04 | Doctor + `setup` skill: CLI/qmd/bun checks + guided installs, M365 auth probe, OKF KB init, qmd collection, Graph people/org seeding (16 real pages). Schedule registration deferred to M7 with the scheduling machinery; known gap: entry scripts resolve `data/` from the working directory (run from repo root in v0.1) | Setup end-to-end on a clean machine |
 | M2 ✅ 2026-07-04 | `inbox-scan` + triage-scout agent + Gate 1 + run report. Deterministic layer landed (rules incl. FR calendar prefixes, envelopes, run bootstrap, file state store with baseDir, both CLIs — verified on the real inbox incl. illegal-transition refusal); agent + skill landed; first live triage: 10 real mails, 10 scout verdicts (thread-aware supersede detection), Gate 1 exercised with user overrides recorded in state.json. Observed for M5: users think per-conversation at Gate 1 - group thread messages there | **First daily value: the triage table** |
 | M3 + M3.5 ✅ 2026-07-04 | `voice-profile` skill (fresh + carried banned-list) + `draft-preflight` gate. Live: 43-message corpus from real sent mail (peers 20, external 18, broadcast 5, upward 0 - no directory manager), EN-default voice profiled with verbatim examples and ESL fingerprint preserved; gate proven against the real profile. Signature HTML capture deferred to the setup-signature slice. M3.5: any-language hardening per decision 23 (odata calendar detection, unicode slugs, CJK substantive filter, 10-language chain cutting) | Voice captured; drafts become possible in principle |
