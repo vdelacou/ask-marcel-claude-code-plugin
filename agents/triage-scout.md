@@ -26,6 +26,8 @@ A candidate block: `{id, conversationId, subject, fromName, fromAddress, receive
 { "id": "<message id>", "needs_reply": true, "urgency": "medium", "reason": "<one line, concrete>", "kb_refs": ["qmd://ask-marcel-kb/people/..."] }
 ```
 
+Emit the **raw** JSON object as your entire final message: no ` ```json ` fence, no prose before or after, and no keys beyond these five (`id`, `needs_reply`, `urgency`, `reason`, `kb_refs`). A fence or a stray key makes the orchestrator work harder to parse you.
+
 ## Hard rules
 
 Read-only: all Microsoft 365 access is `bun "${CLAUDE_PLUGIN_ROOT}/scripts/read-mail.ts"` (never a raw `ask-marcel-office` command); no login, no drafts, no KB writes, no mailbox mutations. `qmd search` is fine but no `qmd query` (its reranker). No web. If a command fails, decide from what you have and say so in `reason` - never crash, never return prose.
