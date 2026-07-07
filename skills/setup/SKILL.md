@@ -7,7 +7,7 @@ description: Verify and complete the plugin setup so every other skill runs clea
 
 Bring this machine to a state where every other skill runs clean. Idempotent - safe to re-run anytime. The doctor decides what is missing; you fix only what it reports, and every fix sits behind an explicit user yes.
 
-v0.1 note: you can run this from any working directory - the entry scripts resolve their own location via `${CLAUDE_PLUGIN_ROOT}` and pin `data/` (KB, profile, scratch) to the plugin's home. `data/` defaults to the plugin root; set `ASK_MARCEL_HOME` to relocate it (needed once the plugin is installed from the ephemeral plugin cache).
+v0.1 note: you can run this from any working directory - the entry scripts resolve their own location via `${CLAUDE_PLUGIN_ROOT}`. `data/` (KB, profile, scratch) lives in the folder you launch Claude Code from, not the plugin cache; set `ASK_MARCEL_HOME` to pin it to a fixed path instead.
 
 ## Steps
 

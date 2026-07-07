@@ -5,7 +5,7 @@ description: Triage the Outlook inbox, research each email that needs a reply, a
 
 # Inbox-zero
 
-Deterministic where possible: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` do the mechanics, agents only judge, and the user decides at every gate. Every email's position lives in the run's state machine - never advance it except through `${CLAUDE_PLUGIN_ROOT}/scripts/state.ts`, which refuses illegal transitions. Research fans out in parallel (agents); every dialog is serial in the main thread (sub-agents cannot ask the user). Any working directory is fine - the scripts run via `${CLAUDE_PLUGIN_ROOT}` and pin `data/` to the plugin home (`ASK_MARCEL_HOME` overrides the data location).
+Deterministic where possible: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` do the mechanics, agents only judge, and the user decides at every gate. Every email's position lives in the run's state machine - never advance it except through `${CLAUDE_PLUGIN_ROOT}/scripts/state.ts`, which refuses illegal transitions. Research fans out in parallel (agents); every dialog is serial in the main thread (sub-agents cannot ask the user). Any working directory is fine - the scripts run via `${CLAUDE_PLUGIN_ROOT}`; `data/` lives in the folder you launch Claude Code from (`ASK_MARCEL_HOME` overrides with a fixed path).
 
 ## Phase 0-2 + Gate 1 - triage
 

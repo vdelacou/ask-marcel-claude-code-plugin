@@ -7,7 +7,7 @@ description: Build or refresh the user's writing-style profile from their last ~
 
 Fresh analysis every run, but the anti-style bans only ever GROW (SPEC.md decision 21 - the carried list encodes months of tuning). Files live in `data/profile/` - outside the KB, never indexed, never gardened.
 
-v0.1 note: any working directory is fine - the scripts pin `data/` to the plugin home (`${CLAUDE_PLUGIN_ROOT}`; override with `ASK_MARCEL_HOME`).
+v0.1 note: any working directory is fine - `data/` lives in the folder you launch Claude Code from (override with `ASK_MARCEL_HOME`).
 
 ## Steps
 

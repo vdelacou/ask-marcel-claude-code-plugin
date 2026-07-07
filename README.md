@@ -86,7 +86,7 @@ data/              # runtime KB / profile / scratch — gitignored, never leaves
 
 ## Using as a plugin
 
-The entry scripts resolve their own location via `${CLAUDE_PLUGIN_ROOT}` and pin `data/` (KB, profile, scratch) to the plugin's own home, so **the plugin runs from any working directory**. `data/` lives in the plugin root by default; set `ASK_MARCEL_HOME=/path` to relocate it.
+The entry scripts resolve their own location via `${CLAUDE_PLUGIN_ROOT}`, so **the plugin runs from any working directory**. `data/` (KB, profile, scratch) lives in the folder you launch Claude Code from, not the plugin cache; set `ASK_MARCEL_HOME=/path` to pin it to a fixed location instead.
 
 **Dev mode (recommended while iterating)** loads the repo in place, from anywhere:
 
@@ -102,7 +102,7 @@ replu   # from any folder, then: "set up the plugin"
 /plugin install email-replu@email-replu
 ```
 
-A `SessionStart` hook runs `bun install --production` on first use so the cached copy has the Office library. Because the install cache is ephemeral (replaced on update), set `ASK_MARCEL_HOME` to a stable path (e.g. `~/Documents/email-replu`) so your KB and profile persist across plugin versions.
+A `SessionStart` hook runs `bun install --production` on first use so the cached copy has the Office library. Your `data/` is unaffected by plugin updates because it lives in your launch folder, not the ephemeral install cache; set `ASK_MARCEL_HOME` if you launch from varying folders and want `data/` pinned to one fixed path.
 
 ## Status
 

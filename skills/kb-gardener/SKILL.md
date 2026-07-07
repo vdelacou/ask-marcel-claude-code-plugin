@@ -5,7 +5,7 @@ description: Keep the local OKF knowledge base healthy - lint it for conformance
 
 # KB gardener
 
-Two phases: Phase 1 is deterministic and safe to auto-apply; Phase 2 is a plan you approve before anything changes. All KB writes go through scripts / kb-curator - never hand-edit `data/kb/**`. Any working directory is fine - the scripts run via `${CLAUDE_PLUGIN_ROOT}` and pin `data/` to the plugin home.
+Two phases: Phase 1 is deterministic and safe to auto-apply; Phase 2 is a plan you approve before anything changes. All KB writes go through scripts / kb-curator - never hand-edit `data/kb/**`. Any working directory is fine - the scripts run via `${CLAUDE_PLUGIN_ROOT}`; `data/` lives in the folder you launch Claude Code from (`ASK_MARCEL_HOME` overrides).
 
 ## Phase 1 - lint + reindex (deterministic, auto-apply)
 
