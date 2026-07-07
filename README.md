@@ -84,10 +84,26 @@ data/              # runtime KB / profile / scratch — gitignored, never leaves
 
 `bun scripts/login.ts` — authenticate to Microsoft 365 via the library's browser sign-in (cached → refresh → Playwright). One-time prerequisite: `bunx playwright install`.
 
-## Using as a plugin (v0.1 dev mode)
+## Using as a plugin
 
-Load the repo directly: `claude --plugin-dir ~/Documents/email-replu`, then invoke the `setup` skill ("set up the plugin"). Run from the repo root — `data/` (KB, profile, scratch) resolves relative to the working directory in v0.1.
+The entry scripts resolve their own location via `${CLAUDE_PLUGIN_ROOT}` and pin `data/` (KB, profile, scratch) to the plugin's own home, so **the plugin runs from any working directory**. `data/` lives in the plugin root by default; set `ASK_MARCEL_HOME=/path` to relocate it.
+
+**Dev mode (recommended while iterating)** loads the repo in place, from anywhere:
+
+```bash
+alias replu='claude --plugin-dir ~/Documents/email-replu'
+replu   # from any folder, then: "set up the plugin"
+```
+
+**Install it (persistent)** via a local marketplace:
+
+```
+/plugin marketplace add ~/Documents/email-replu
+/plugin install email-replu@email-replu
+```
+
+A `SessionStart` hook runs `bun install --production` on first use so the cached copy has the Office library. Because the install cache is ephemeral (replaced on update), set `ASK_MARCEL_HOME` to a stable path (e.g. `~/Documents/email-replu`) so your KB and profile persist across plugin versions.
 
 ## Status
 
-M0-M7 functionally complete, plus the full library-only migration (decision 19, R1-R4 enforced). Triage (scan + triage-scout + Gate 1), the M5 research pipeline (`fetch-email-bundle` with attachments + SharePoint, `read-doc` with embedded-image extraction plus PDF fallback, the search module over kb/mail/sharepoint, the KB queue, the `email-researcher` agent), the M6 drafting loop (`draft-apply`'s code approval gate, `write-kb-page`, the `kb-curator` agent, and the `inbox-zero` skill's full Phase 0-5 orchestration), and the M7 gardener (`kb-lint`, `kb-index-gen`, the `kb-gardener` skill, pre-research mode, scheduling) are all built and green. The read-only pipeline (auth, scan, bundle, search) is live-verified against a real inbox. Next: the `package.json` dependency flip once the Office library is published to npm.
+M0-M7 functionally complete, plus the full library-only migration (decision 19, R1-R4 enforced). Triage (scan + triage-scout + Gate 1), the M5 research pipeline (`fetch-email-bundle` with attachments + SharePoint, `read-doc` with embedded-image extraction plus PDF fallback, the search module over kb/mail/sharepoint, the KB queue, the `email-researcher` agent), the M6 drafting loop (`draft-apply`'s code approval gate, `write-kb-page`, the `kb-curator` agent, and the `inbox-zero` skill's full Phase 0-5 orchestration), and the M7 gardener (`kb-lint`, `kb-index-gen`, the `kb-gardener` skill, pre-research mode, scheduling) are all built and green. The read-only pipeline (auth, scan, bundle, search) is live-verified against a real inbox. The Office library is sourced from npm (`ask-marcel-office-cli@^2.0.0`), and the plugin runs from any folder via `--plugin-dir` or a local-marketplace `/plugin install`.

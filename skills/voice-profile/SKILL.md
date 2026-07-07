@@ -7,11 +7,11 @@ description: Build or refresh the user's writing-style profile from their last ~
 
 Fresh analysis every run, but the anti-style bans only ever GROW (SPEC.md decision 21 - the carried list encodes months of tuning). Files live in `data/profile/` - outside the KB, never indexed, never gardened.
 
-v0.1 note: run from the plugin repository root.
+v0.1 note: any working directory is fine - the scripts pin `data/` to the plugin home (`${CLAUDE_PLUGIN_ROOT}`; override with `ASK_MARCEL_HOME`).
 
 ## Steps
 
-1. **Extract the corpus (deterministic).** `bun scripts/voice-extract.ts --job-title "<title-prefix>" --json` - last 50 substantive own-bodies from ALL folders (from:me), quoted chains and signatures stripped, bucketed. Report the bucket counts; if a bucket is empty (e.g. upward with no directory manager), say so - do not invent its voice.
+1. **Extract the corpus (deterministic).** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/voice-extract.ts" --job-title "<title-prefix>" --json` - last 50 substantive own-bodies from ALL folders (from:me), quoted chains and signatures stripped, bucketed. Report the bucket counts; if a bucket is empty (e.g. upward with no directory manager), say so - do not invent its voice.
 
 2. **Analyze per bucket (judgment).** Read the corpus messages bucket by bucket and extract, citing real message evidence: greeting forms and when each is used; sign-off forms; median length and structure (ask-first? bullets? bold labels?); directness and hedging; language choice per recipient (EN default? FR with whom?); recurring phrases. Pick 2-3 SHORT verbatim excerpts per bucket as examples.
 
@@ -23,7 +23,7 @@ v0.1 note: run from the plugin repository root.
 
 6. **Write/refresh `data/profile/about-me.md`**: name, email, title, internal domains, manager (with `manager_confirmed: true|false` - ask the user when the directory has none), languages. NEVER overwrite a field marked `*_confirmed: true` - the user's corrections outrank any probe.
 
-7. **Verify the gate.** Pipe a deliberately dirty draft through `bun scripts/draft-preflight.ts` (expect exit 1) and a clean one (expect 0) so the profile's anti-style block is proven live. Then `bun scripts/doctor.ts` - the voice-profile check must be green.
+7. **Verify the gate.** Pipe a deliberately dirty draft through `bun "${CLAUDE_PLUGIN_ROOT}/scripts/draft-preflight.ts"` (expect exit 1) and a clean one (expect 0) so the profile's anti-style block is proven live. Then `bun "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.ts"` - the voice-profile check must be green.
 
 8. **Report**: bucket counts, what changed vs the previous profile (if any), and the anti-style delta.
 

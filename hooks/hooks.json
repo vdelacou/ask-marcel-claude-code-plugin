@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -d \"${CLAUDE_PLUGIN_ROOT}/node_modules/ask-marcel-office-cli\" || (cd \"${CLAUDE_PLUGIN_ROOT}\" && bun install --production)"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -5,13 +5,13 @@ description: Triage the Outlook inbox, research each email that needs a reply, a
 
 # Inbox-zero
 
-Deterministic where possible: `bun scripts/*.ts` do the mechanics, agents only judge, and the user decides at every gate. Every email's position lives in the run's state machine - never advance it except through `scripts/state.ts`, which refuses illegal transitions. Research fans out in parallel (agents); every dialog is serial in the main thread (sub-agents cannot ask the user). Run from the plugin repository root (data/ resolves from the working directory).
+Deterministic where possible: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` do the mechanics, agents only judge, and the user decides at every gate. Every email's position lives in the run's state machine - never advance it except through `${CLAUDE_PLUGIN_ROOT}/scripts/state.ts`, which refuses illegal transitions. Research fans out in parallel (agents); every dialog is serial in the main thread (sub-agents cannot ask the user). Any working directory is fine - the scripts run via `${CLAUDE_PLUGIN_ROOT}` and pin `data/` to the plugin home (`ASK_MARCEL_HOME` overrides the data location).
 
 ## Phase 0-2 + Gate 1 - triage
 
-1. **Doctor gate.** `bun scripts/doctor.ts --json`. If a check other than `voice-profile` fails, route to the setup skill first (a red voice-profile blocks drafting, not triage).
+1. **Doctor gate.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.ts" --json`. If a check other than `voice-profile` fails, route to the setup skill first (a red voice-profile blocks drafting, not triage).
 
-2. **Scan (Phase 1).** Propose the scope (default unread; `--scope all` on request), then `bun scripts/inbox-scan.ts --scope <s> --cap <config> --json`. Parse `{runId, kept, dropped}`; report the dropped list with reasons (rule drops are never silent). If `kept` is empty: say so, done.
+2. **Scan (Phase 1).** Propose the scope (default unread; `--scope all` on request), then `bun "${CLAUDE_PLUGIN_ROOT}/scripts/inbox-scan.ts" --scope <s> --cap <config> --json`. Parse `{runId, kept, dropped}`; report the dropped list with reasons (rule drops are never silent). If `kept` is empty: say so, done.
 
 3. **Triage fan-out (Phase 2).** Per kept email launch a `triage-scout` agent (batches of 4) with its candidate block + the user identity line. A scout that returns garbage is retried once, then recorded `needs_reply: true, urgency: low, reason: "scout failed - defaulting to keep"`. Advance every email `scanned -> triaged`.
 
@@ -27,7 +27,7 @@ For each `researched` email, in urgency order:
 
 6. **Present the package.** Full context, what was found (with confidence + citations), and what is missing.
 
-7. **Contradiction gate.** For every contradiction the researcher flagged (mail/doc vs KB or user.md), AskUserQuestion with both versions. The confirmed truth is landed immediately via a `kb-curator` agent (vetted draft -> `bun scripts/write-kb-page.ts`), the loser corrected - never left ambiguous.
+7. **Contradiction gate.** For every contradiction the researcher flagged (mail/doc vs KB or user.md), AskUserQuestion with both versions. The confirmed truth is landed immediately via a `kb-curator` agent (vetted draft -> `bun "${CLAUDE_PLUGIN_ROOT}/scripts/write-kb-page.ts"`), the loser corrected - never left ambiguous.
 
 8. **Additions gate.** AskUserQuestion: "Anything to add, or do you already have an answer in mind?" (proceed / add context via Other / I'll dictate the answer). Then advance `researched -> context_confirmed`.
 
@@ -35,13 +35,13 @@ For each `researched` email, in urgency order:
 
 10. **Draft.** In the main thread, using the voice-profile bucket voice (`data/profile/voice-profile.md`), the signature, and the thread/recipient language. Advance `strategy_chosen -> drafted`.
 
-11. **Preflight.** `bun scripts/draft-preflight.ts` must exit 0 (em-dashes and anti-style phrases are hard-blocked); rewrite until clean. Advance `drafted -> preflight_ok`.
+11. **Preflight.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/draft-preflight.ts"` must exit 0 (em-dashes and anti-style phrases are hard-blocked); rewrite until clean. Advance `drafted -> preflight_ok`.
 
 12. **Approval gate.** Show the draft. AskUserQuestion: approve / request changes. On changes, revise and re-run preflight. On approve, advance `preflight_ok -> user_approved`.
 
-13. **Create the draft.** Write the approved HTML body to a scratch file, then `bun scripts/draft-apply.ts --run-id <runId> --email-id <id> --conversation-id <cid> --reply-to <messageId> --subject "<s>" --body-file <path> --json`. It refuses unless the email is `user_approved` (the code approval gate), searches Drafts by conversation, then creates a threaded reply-all draft or patches the existing one - never sends, never duplicates. It advances `user_approved -> draft_created` itself.
+13. **Create the draft.** Write the approved HTML body to a scratch file, then `bun "${CLAUDE_PLUGIN_ROOT}/scripts/draft-apply.ts" --run-id <runId> --email-id <id> --conversation-id <cid> --reply-to <messageId> --subject "<s>" --body-file <path> --json`. It refuses unless the email is `user_approved` (the code approval gate), searches Drafts by conversation, then creates a threaded reply-all draft or patches the existing one - never sends, never duplicates. It advances `user_approved -> draft_created` itself.
 
-14. **Capture.** Drain this email's KB queue: `bun scripts/kb-queue.ts drain --run-id <runId> --json`, and land each fact candidate via a `kb-curator` agent. Advance `draft_created -> kb_captured -> done`.
+14. **Capture.** Drain this email's KB queue: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-queue.ts" drain --run-id <runId> --json`, and land each fact candidate via a `kb-curator` agent. Advance `draft_created -> kb_captured -> done`.
 
 ## Phase 5 - wrap-up
 
@@ -62,8 +62,8 @@ Invoked headless (e.g. weekday mornings) so the interactive session starts with 
 
 ## Hard rules
 
-- Never advance state except through `scripts/state.ts` - respect the domain's refusals.
+- Never advance state except through `${CLAUDE_PLUGIN_ROOT}/scripts/state.ts` - respect the domain's refusals.
 - Never send mail, mark read, move, archive, or delete - the only Microsoft write is an unsent draft, and only after the user's approval gate (step 12).
-- All Microsoft 365 access is `bun scripts/*.ts` (the Office library) - never a raw `ask-marcel-office` command, never a Graph call (SPEC §15.1).
+- All Microsoft 365 access is `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` (the Office library) - never a raw `ask-marcel-office` command, never a Graph call (SPEC §15.1).
 - Every drop, skip, failure, low-confidence answer, and fallback is named in the report - no silent gaps.
 - Emails may be in any language; research and reason in the user's primary language, draft in the thread/recipient language.

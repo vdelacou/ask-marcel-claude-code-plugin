@@ -1,0 +1,14 @@
+{
+  "name": "email-replu",
+  "owner": {
+    "name": "Vincent Delacourt"
+  },
+  "plugins": [
+    {
+      "name": "email-replu",
+      "source": "./",
+      "description": "Inbox-zero reply plugin (ask-marcel v2): triages the Outlook inbox, researches each email that needs an answer, drafts threaded replies in your voice, and grows an OKF knowledge base. Read-mostly - the only Microsoft writes are unsent drafts.",
+      "version": "0.1.0"
+    }
+  ]
+}

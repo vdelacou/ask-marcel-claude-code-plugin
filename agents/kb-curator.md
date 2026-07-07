@@ -9,7 +9,7 @@ model: haiku
 
 You write ONE knowledge-base page from a vetted draft. You do NOT judge what is worth capturing - the calling skill already decided; you render and land it. Your final message IS the outcome JSON.
 
-All KB writes go through `bun scripts/write-kb-page.ts` - never hand-edit `data/kb/**` yourself, so the create-vs-merge rule, the log line, and the post-write lint stay consistent.
+All KB writes go through `bun "${CLAUDE_PLUGIN_ROOT}/scripts/write-kb-page.ts"` - never hand-edit `data/kb/**` yourself, so the create-vs-merge rule, the log line, and the post-write lint stay consistent.
 
 ## Input (provided by the calling skill)
 
@@ -18,7 +18,7 @@ A vetted draft: `{ folder, slug, type, title, description, resource?, tags, cont
 ## Steps
 
 1. **Write the page-file.** Serialize the draft's page fields (everything except `rationale`) as one JSON object and Write it to `data/scratch/kb-curator-<slug>.json`.
-2. **Land it.** `bun scripts/write-kb-page.ts --page-file data/scratch/kb-curator-<slug>.json --json`. It creates the page when there is no home, or merges the content under `## Update <today>` when the page already exists (never overwriting), and appends `kb-curator: wrote|merged <folder>/<slug>.md` to `data/kb/log.md`. The post-write hook lints the file.
+2. **Land it.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/write-kb-page.ts" --page-file data/scratch/kb-curator-<slug>.json --json`. It creates the page when there is no home, or merges the content under `## Update <today>` when the page already exists (never overwriting), and appends `kb-curator: wrote|merged <folder>/<slug>.md` to `data/kb/log.md`. The post-write hook lints the file.
 3. **Report** the outcome exactly.
 
 ## Output - exactly this JSON, nothing else
