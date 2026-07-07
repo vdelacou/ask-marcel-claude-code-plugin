@@ -118,7 +118,7 @@ describe('fetch-email-bundle', () => {
 
     // 1. correct command ladder, message by message: convert body, list attachments (only when present), extract SharePoint links
     expect(officeLog).toEqual([
-      { command: 'list-conversation-messages', params: { conversationId: 'conv-abc', select: 'id,subject,from,receivedDateTime,hasAttachments' } },
+      { command: 'list-conversation-messages', params: { conversationId: 'conv-abc', top: '50', select: 'id,subject,from,receivedDateTime,hasAttachments' } },
       { command: 'convert-mail-to-markdown', params: { messageId: 'msg-1', inlineImages: 'false' } },
       { command: 'list-mail-attachments', params: { messageId: 'msg-1', select: 'id,name,contentType,size,isInline' } },
       { command: 'extract-sharepoint-links-in-mail', params: { messageId: 'msg-1' } },

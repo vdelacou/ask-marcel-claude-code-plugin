@@ -19,6 +19,7 @@ All Microsoft 365 and local work goes through `bun "${CLAUDE_PLUGIN_ROOT}/script
 1. **Assemble the bundle** (deterministic):
    `bun "${CLAUDE_PLUGIN_ROOT}/scripts/fetch-email-bundle.ts" --run-id <runId> --email-id <emailId> --conversation-id <conversationId> --json`
    Then Read `data/scratch/<runId>/<emailId>/bundle/manifest.json` and the message markdown under `bundle/messages/`. The manifest lists every attachment (markdown under `bundle/attachments/`, images under `bundle/images/`) and every resolved SharePoint doc (`bundle/sharepoint/`) with a per-artifact status - read what you need, note anything that `failed`.
+   **The message being replied to is the latest in the thread** - the highest-numbered file under `bundle/messages/` (they are ordered chronologically). Read it, and the sender's prior message, in full FIRST. Never summarize the reply-to message, or any thread message, from a search snippet: the bundle holds the complete body, so the search module is for outside context only, never for a message already in the thread.
 
 2. **Read the documents that matter.** Attachments and SharePoint links are already converted in the bundle. For a document whose conversion looks poor, or a SharePoint item you need in full, re-read it deliberately:
    `bun "${CLAUDE_PLUGIN_ROOT}/scripts/read-doc.ts" --run-id <runId> --email-id <emailId> --name "<name>" --drive-id <driveId> --item-id <itemId> --json`

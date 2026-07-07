@@ -53,7 +53,9 @@ type Converted = { readonly entry: ManifestEntry; readonly files: ReadonlyArray<
 
 const pad = (value: number): string => String(value).padStart(2, '0');
 
-const threadParams = (conversationId: string): Record<string, string> => ({ conversationId, select: 'id,subject,from,receivedDateTime,hasAttachments' });
+// top:'50' overrides the library's small default page so a long thread is captured whole - otherwise
+// the newest messages (incl. the one being replied to) can fall off and force a lossy search-snippet.
+const threadParams = (conversationId: string): Record<string, string> => ({ conversationId, top: '50', select: 'id,subject,from,receivedDateTime,hasAttachments' });
 
 const attachmentParams = (messageId: string): Record<string, string> => ({ messageId, select: 'id,name,contentType,size,isInline' });
 
