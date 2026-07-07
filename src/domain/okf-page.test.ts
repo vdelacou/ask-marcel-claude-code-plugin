@@ -12,7 +12,7 @@ const INPUT: KbPageInput = {
   resource: 'https://outlook/thread',
   tags: ['person', 'retail'],
   content: 'Focus areas: retail ops.\n\n## Commitments\n\n- 2026-07-01: approved the Q3 envelope.',
-  citations: ['https://outlook/m1', 'qmd://replu-kb/orgs/maison-lumiere-com.md'],
+  citations: ['https://outlook/m1', 'qmd://ask-marcel-kb/orgs/maison-lumiere-com.md'],
 };
 
 describe('kbPagePath', () => {
@@ -43,7 +43,7 @@ describe('renderOkfPage', () => {
         '# Citations',
         '',
         '[1] https://outlook/m1',
-        '[2] qmd://replu-kb/orgs/maison-lumiere-com.md',
+        '[2] qmd://ask-marcel-kb/orgs/maison-lumiere-com.md',
         '',
       ].join('\n')
     );

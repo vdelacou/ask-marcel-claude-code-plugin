@@ -31,7 +31,7 @@ const TOOL_POLICY: Readonly<Record<ToolId, { readonly minimum: string; readonly 
   qmd: { minimum: '2.5.0', installFix: 'bun install -g @tobilu/qmd' },
 };
 
-const COLLECTION_FIX = 'qmd collection add data/kb --name replu-kb';
+const COLLECTION_FIX = 'qmd collection add data/kb --name ask-marcel-kb';
 
 const AUTH_FIX = 'sign in to Microsoft 365 via the setup skill (browser login)';
 
@@ -53,8 +53,8 @@ const evaluateAuth = (auth: AuthProbe): DoctorCheck =>
 const evaluateCollection = (probe: ToolProbe): DoctorCheck => {
   if (probe.kind === 'absent') return { id: 'qmd-collection', status: 'missing', detail: 'qmd is not installed', fix: COLLECTION_FIX };
   if (probe.kind === 'failed') return { id: 'qmd-collection', status: 'error', detail: probe.message };
-  if (!probe.stdout.includes('replu-kb')) return { id: 'qmd-collection', status: 'missing', detail: 'collection replu-kb is not registered', fix: COLLECTION_FIX };
-  return { id: 'qmd-collection', status: 'ok', detail: 'replu-kb registered' };
+  if (!probe.stdout.includes('ask-marcel-kb')) return { id: 'qmd-collection', status: 'missing', detail: 'collection ask-marcel-kb is not registered', fix: COLLECTION_FIX };
+  return { id: 'qmd-collection', status: 'ok', detail: 'ask-marcel-kb registered' };
 };
 
 const evaluateFile = (id: CheckId, exists: boolean, path: string, fix: string): DoctorCheck =>

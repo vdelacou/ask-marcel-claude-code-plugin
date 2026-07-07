@@ -6,13 +6,13 @@ import type { SearchHit } from './search-hits.ts';
 describe('extractKbHits', () => {
   test('maps qmd search results, defaulting id/title/snippet from the file path', () => {
     const data = [
-      { docid: '#abc', score: 0.63, file: 'qmd://replu-kb/people/jane.md', line: 2, title: 'Jane', context: 'ctx', snippet: 'the snippet' },
-      { file: 'qmd://replu-kb/orgs/x.md' },
+      { docid: '#abc', score: 0.63, file: 'qmd://ask-marcel-kb/people/jane.md', line: 2, title: 'Jane', context: 'ctx', snippet: 'the snippet' },
+      { file: 'qmd://ask-marcel-kb/orgs/x.md' },
     ];
 
     expect(extractKbHits(data)).toEqual([
-      { source: 'kb', id: '#abc', title: 'Jane', snippet: 'the snippet', uri: 'qmd://replu-kb/people/jane.md' },
-      { source: 'kb', id: 'qmd://replu-kb/orgs/x.md', title: 'qmd://replu-kb/orgs/x.md', snippet: '', uri: 'qmd://replu-kb/orgs/x.md' },
+      { source: 'kb', id: '#abc', title: 'Jane', snippet: 'the snippet', uri: 'qmd://ask-marcel-kb/people/jane.md' },
+      { source: 'kb', id: 'qmd://ask-marcel-kb/orgs/x.md', title: 'qmd://ask-marcel-kb/orgs/x.md', snippet: '', uri: 'qmd://ask-marcel-kb/orgs/x.md' },
     ]);
   });
 

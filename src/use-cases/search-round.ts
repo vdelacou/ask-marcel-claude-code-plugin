@@ -18,7 +18,7 @@ type Deps = { readonly office: Office; readonly runner: CommandRunner; readonly 
 // One backend's outcome: hits contributed, plus an error when it failed (recorded, never thrown).
 type BackendOutcome = { readonly hits: ReadonlyArray<SearchHit>; readonly error?: BackendError };
 
-const KB_COLLECTION = 'replu-kb';
+const KB_COLLECTION = 'ask-marcel-kb';
 const TOP = '20';
 
 // kb rides the local qmd BM25 index (a non-M365 tool, so it stays on CommandRunner) and emits a bare JSON array.

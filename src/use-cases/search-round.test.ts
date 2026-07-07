@@ -56,7 +56,7 @@ const ALL: SearchRequest = { query: 'Q3 envelope', backends: ['kb', 'mail', 'sha
 describe('search-round', () => {
   test('every requested backend runs in parallel and returns one merged, source-tagged list', async () => {
     const { searchRound, officeLog, runnerLog, logger } = setup({
-      kb: kbJson([{ docid: '#a', file: 'qmd://replu-kb/topics/q3.md', title: 'Q3', snippet: 'kb snippet' }]),
+      kb: kbJson([{ docid: '#a', file: 'qmd://ask-marcel-kb/topics/q3.md', title: 'Q3', snippet: 'kb snippet' }]),
       mail: mailData([{ id: 'm1', subject: 'RE: Q3', bodyPreview: 'mail preview', webLink: 'https://outlook/m1' }]),
       sharepoint: sharepointData([{ hitId: 'h1', summary: 'sp summary', resource: { name: 'Q3.xlsx', webUrl: 'https://sp/q3' } }]),
     });
@@ -64,12 +64,12 @@ describe('search-round', () => {
     const result = await searchRound(ALL);
 
     // the kb backend rides qmd; mail and sharepoint ride the library search commands
-    expect(runnerLog).toEqual(['qmd search Q3 envelope -c replu-kb --json -n 20']);
+    expect(runnerLog).toEqual(['qmd search Q3 envelope -c ask-marcel-kb --json -n 20']);
     expect(officeLog).toContainEqual({ command: 'search-mail-messages', params: { query: 'Q3 envelope', top: '20', select: 'id,subject,bodyPreview,webLink' } });
     expect(officeLog).toContainEqual({ command: 'microsoft-search-query', params: { query: 'Q3 envelope' } });
     expect(result.errors).toEqual([]);
     expect(result.hits).toEqual([
-      { source: 'kb', id: '#a', title: 'Q3', snippet: 'kb snippet', uri: 'qmd://replu-kb/topics/q3.md' },
+      { source: 'kb', id: '#a', title: 'Q3', snippet: 'kb snippet', uri: 'qmd://ask-marcel-kb/topics/q3.md' },
       { source: 'mail', id: 'm1', title: 'RE: Q3', snippet: 'mail preview', uri: 'https://outlook/m1' },
       { source: 'sharepoint', id: 'h1', title: 'Q3.xlsx', snippet: 'sp summary', uri: 'https://sp/q3?web=1' },
     ]);
@@ -87,7 +87,7 @@ describe('search-round', () => {
 
   test('a backend failure is recorded while the others still contribute their hits', async () => {
     const { searchRound } = setup({
-      kb: kbJson([{ file: 'qmd://replu-kb/topics/q3.md', title: 'Q3', snippet: 'via kb' }]),
+      kb: kbJson([{ file: 'qmd://ask-marcel-kb/topics/q3.md', title: 'Q3', snippet: 'via kb' }]),
       mail: commandFailed('403 forbidden'),
       sharepoint: commandFailed('search service unavailable'),
     });
@@ -95,7 +95,7 @@ describe('search-round', () => {
     const result = await searchRound(ALL);
 
     // kb still contributes; both failing library backends are recorded, each named
-    expect(result.hits).toEqual([{ source: 'kb', id: 'qmd://replu-kb/topics/q3.md', title: 'Q3', snippet: 'via kb', uri: 'qmd://replu-kb/topics/q3.md' }]);
+    expect(result.hits).toEqual([{ source: 'kb', id: 'qmd://ask-marcel-kb/topics/q3.md', title: 'Q3', snippet: 'via kb', uri: 'qmd://ask-marcel-kb/topics/q3.md' }]);
     expect(result.errors).toEqual([
       { backend: 'mail', message: '403 forbidden' },
       { backend: 'sharepoint', message: 'search service unavailable' },

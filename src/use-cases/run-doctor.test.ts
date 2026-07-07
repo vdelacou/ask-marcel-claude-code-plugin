@@ -46,7 +46,7 @@ const createFileProbeFake = (present: ReadonlyArray<string>): FileProbe => ({
 const ALL_TOOLS: Responses = {
   'bun --version': ok({ stdout: '1.3.14', exitCode: 0 }),
   'qmd --version': ok({ stdout: '2.6.0', exitCode: 0 }),
-  'qmd collection list': ok({ stdout: 'replu-kb (qmd://replu-kb/)', exitCode: 0 }),
+  'qmd collection list': ok({ stdout: 'ask-marcel-kb (qmd://ask-marcel-kb/)', exitCode: 0 }),
 };
 
 const OK_AUTH: OfficeResp = ok({ displayName: 'user', mail: 'me@internal-corp.com' });
@@ -84,7 +84,7 @@ describe('run-doctor', () => {
       { id: 'qmd', status: 'ok', detail: '2.6.0' },
       { id: 'auth', status: 'ok', detail: 'Microsoft 365 session valid' },
       { id: 'kb', status: 'ok', detail: 'data/kb/index.md' },
-      { id: 'qmd-collection', status: 'ok', detail: 'replu-kb registered' },
+      { id: 'qmd-collection', status: 'ok', detail: 'ask-marcel-kb registered' },
       { id: 'voice-profile', status: 'ok', detail: 'data/profile/voice-profile.md' },
       { id: 'user-md', status: 'ok', detail: 'data/profile/user.md' },
     ]);
@@ -141,14 +141,14 @@ describe('run-doctor', () => {
     expect(check(report, 'user-md')).toEqual({ id: 'user-md', status: 'missing', detail: 'data/profile/user.md is missing', fix: 'seed data/profile/user.md (setup skill)' });
   });
 
-  test('the qmd collection must be the replu one, not just any collection', async () => {
+  test('the qmd collection must be the ask-marcel one, not just any collection', async () => {
     const { report } = await runDoctor({ 'qmd collection list': ok({ stdout: 'marcel-knowledge-base (qmd://marcel-knowledge-base/)', exitCode: 0 }) });
 
     expect(check(report, 'qmd-collection')).toEqual({
       id: 'qmd-collection',
       status: 'missing',
-      detail: 'collection replu-kb is not registered',
-      fix: 'qmd collection add data/kb --name replu-kb',
+      detail: 'collection ask-marcel-kb is not registered',
+      fix: 'qmd collection add data/kb --name ask-marcel-kb',
     });
   });
 
@@ -185,7 +185,7 @@ describe('run-doctor', () => {
       { id: 'qmd', status: 'missing', detail: 'not installed', fix: 'bun install -g @tobilu/qmd' },
       { id: 'auth', status: 'missing', detail: 'no valid Microsoft 365 session', fix: 'sign in to Microsoft 365 via the setup skill (browser login)' },
       { id: 'kb', status: 'ok', detail: 'data/kb/index.md' },
-      { id: 'qmd-collection', status: 'missing', detail: 'qmd is not installed', fix: 'qmd collection add data/kb --name replu-kb' },
+      { id: 'qmd-collection', status: 'missing', detail: 'qmd is not installed', fix: 'qmd collection add data/kb --name ask-marcel-kb' },
       { id: 'voice-profile', status: 'ok', detail: 'data/profile/voice-profile.md' },
       { id: 'user-md', status: 'ok', detail: 'data/profile/user.md' },
     ]);
