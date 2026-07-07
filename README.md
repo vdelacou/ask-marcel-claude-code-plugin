@@ -1,6 +1,6 @@
-# email-replu
+# ask-marcel
 
-Inbox-zero reply plugin for Claude Code (working name — ships as **ask-marcel v2**): triages the Outlook inbox, researches each email that needs an answer, drafts threaded replies in the user's voice, and grows an OKF-native knowledge base. Read-mostly by design — the only Microsoft writes are unsent drafts. All Microsoft 365 access goes through the imported `ask-marcel-office-cli` **library** (the `Office` port), never the CLI binary and never a raw Graph client (SPEC §15.1, R1-R4); `qmd` and `bun` remain the only spawned tools.
+**ask-marcel** is an inbox-zero reply plugin for Claude Code: it triages your Outlook inbox, researches each email that needs an answer, drafts threaded replies in your voice, and grows an OKF-native knowledge base. Read-mostly by design: the only Microsoft writes are unsent drafts. All Microsoft 365 access goes through the imported `ask-marcel-office-cli` library (the `Office` port), never the CLI binary and never a raw Graph client (SPEC §15.1, R1-R4); `qmd` and `bun` remain the only spawned tools.
 
 The full design lives in [SPEC.md](SPEC.md) (23 recorded decisions, build plan in §16). All code follows the [atelier standard](.agents/skills/atelier/SKILL.md) — strict TDD, Clean Architecture, `Result<T, E>` at IO boundaries, gates enforced by hooks.
 
@@ -86,26 +86,31 @@ data/              # runtime KB / profile / scratch — gitignored, never leaves
 
 `bun scripts/capture-signature.ts [--json]` — SPEC §13 signature capture: lift the `id="Signature"` block from a recent sent email, inline its logo images as base64, and write `data/profile/draft-template.html` (the inbox-zero drafting step wraps each reply in it, so drafts carry the user's font + signature). Read-only on the mailbox.
 
-## Using as a plugin
+## Installing
 
-The entry scripts resolve their own location via `${CLAUDE_PLUGIN_ROOT}`, so **the plugin runs from any working directory**. `data/` (KB, profile, scratch) lives in the folder you launch Claude Code from, not the plugin cache; set `ASK_MARCEL_HOME=/path` to pin it to a fixed location instead.
+In Claude Code, add the marketplace and install the plugin:
 
-**Dev mode (recommended while iterating)** loads the repo in place, from anywhere:
+```
+/plugin marketplace add vdelacou/ask-marcel-claude-code-plugin
+/plugin install ask-marcel@ask-marcel
+```
+
+[Bun](https://bun.sh) must be on your PATH; a `SessionStart` hook then runs `bun install --production` on first use so the cached copy has the Office library. Once installed, say **"set up the plugin"** to run the setup skill (Microsoft 365 sign-in, KB skeleton, voice profile, signature capture).
+
+Your `data/` (KB, profile, mail scratch) lives in the folder you launch Claude Code from, never in the plugin cache, so it survives updates. Set `ASK_MARCEL_HOME=/path` to pin it to a fixed location instead.
+
+### Local development
+
+Clone the repo and load it in place, from any working directory:
 
 ```bash
-alias replu='claude --plugin-dir ~/Documents/email-replu'
-replu   # from any folder, then: "set up the plugin"
+git clone https://github.com/vdelacou/ask-marcel-claude-code-plugin.git
+# then, from anywhere:
+claude --plugin-dir /path/to/ask-marcel-claude-code-plugin
 ```
 
-**Install it (persistent)** via a local marketplace:
-
-```
-/plugin marketplace add ~/Documents/email-replu
-/plugin install email-replu@email-replu
-```
-
-A `SessionStart` hook runs `bun install --production` on first use so the cached copy has the Office library. Your `data/` is unaffected by plugin updates because it lives in your launch folder, not the ephemeral install cache; set `ASK_MARCEL_HOME` if you launch from varying folders and want `data/` pinned to one fixed path.
+The entry scripts resolve their own location via `${CLAUDE_PLUGIN_ROOT}`, so the plugin runs from any working directory in either mode.
 
 ## Status
 
-M0-M7 functionally complete, plus the full library-only migration (decision 19, R1-R4 enforced). Triage (scan + triage-scout + Gate 1), the M5 research pipeline (`fetch-email-bundle` with attachments + SharePoint, `read-doc` with embedded-image extraction plus PDF fallback, the search module over kb/mail/sharepoint, the KB queue, the `email-researcher` agent), the M6 drafting loop (`draft-apply`'s code approval gate, `write-kb-page`, the `kb-curator` agent, and the `inbox-zero` skill's full Phase 0-5 orchestration), and the M7 gardener (`kb-lint`, `kb-index-gen`, the `kb-gardener` skill, pre-research mode, scheduling) are all built and green. The read-only pipeline (auth, scan, bundle, search) is live-verified against a real inbox. The Office library is sourced from npm (`ask-marcel-office-cli@^2.0.0`), and the plugin runs from any folder via `--plugin-dir` or a local-marketplace `/plugin install`.
+M0-M7 functionally complete, plus the full library-only migration (decision 19, R1-R4 enforced). Triage (scan + triage-scout + Gate 1), the M5 research pipeline (`fetch-email-bundle` with attachments + SharePoint, `read-doc` with embedded-image extraction plus PDF fallback, the search module over kb/mail/sharepoint, the KB queue, the `email-researcher` agent), the M6 drafting loop (`draft-apply`'s code approval gate, `write-kb-page`, the `kb-curator` agent, and the `inbox-zero` skill's full Phase 0-5 orchestration), and the M7 gardener (`kb-lint`, `kb-index-gen`, the `kb-gardener` skill, pre-research mode, scheduling) are all built and green. The read-only pipeline (auth, scan, bundle, search) is live-verified against a real inbox. The Office library is sourced from npm (`ask-marcel-office-cli@^2.0.0`), and the plugin installs from the public marketplace (`/plugin install ask-marcel@ask-marcel`) or runs from any folder via `--plugin-dir`.
