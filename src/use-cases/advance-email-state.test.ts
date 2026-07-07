@@ -34,14 +34,26 @@ describe('advance-email-state', () => {
     expect(logger.calls).toEqual([{ level: 'info', event: 'email-state-advanced', meta: { emailId: 'msg-1', to: 'approved' } }]);
   });
 
-  test('an email the user unchecks at Gate 1 is skipped, and a skipped email never re-enters the pipeline', async () => {
+  test('a skipped email cannot jump the gates, but a Gate 1 mistake rewinds to triaged and re-decides', async () => {
     const { advance } = setup({ 'msg-1': 'triaged' });
 
     expect(await advance(RUN, 'msg-1', 'skipped')).toEqual({ ok: true, value: 'skipped' });
 
+    // a skipped email can never leap straight back into the research pipeline
     const revived = await advance(RUN, 'msg-1', 'researched');
     expectErr(revived);
     expect(revived.error).toMatchObject({ kind: 'transition', error: { kind: 'invalid-transition', from: 'skipped', to: 'researched' } });
+
+    // but a wrong skip at Gate 1 is correctable through state.ts alone: skipped -> triaged, then approve
+    expect(await advance(RUN, 'msg-1', 'triaged')).toEqual({ ok: true, value: 'triaged' });
+    expect(await advance(RUN, 'msg-1', 'approved')).toEqual({ ok: true, value: 'approved' });
+  });
+
+  test('an email wrongly approved at Gate 1 is corrected back to skipped without editing state.json', async () => {
+    const { advance, stateStore } = setup({ 'msg-1': 'approved' });
+
+    expect(await advance(RUN, 'msg-1', 'skipped')).toEqual({ ok: true, value: 'skipped' });
+    expect(stateStore.snapshot(RUN)?.['msg-1']).toBe('skipped');
   });
 
   test('an email cannot get its Outlook draft before the user approved the text', async () => {
