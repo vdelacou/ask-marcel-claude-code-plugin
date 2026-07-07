@@ -36,7 +36,7 @@ const findExistingDraft = async (deps: Deps, conversationId: string): Promise<Re
 
 // A new thread gets a threaded reply-all draft (create-reply-draft inherits recipients + RE: subject + quoted history).
 const createDraft = async (deps: Deps, request: DraftApplyRequest): Promise<Result<DraftApplySummary, DraftApplyError>> => {
-  const run = await deps.office.execute('create-reply-draft', { replyToMessageId: request.replyToMessageId, bodyContent: request.body, bodyContentType: 'html' });
+  const run = await deps.office.execute('create-reply-draft', { replyToMessageId: request.replyToMessageId, bodyContent: request.body, bodyContentType: 'HTML' });
   if (!run.ok) return err({ kind: 'draft-failed', message: run.error.message });
   const draftId = extractDraftId(run.value);
   return draftId === undefined ? err({ kind: 'draft-failed', message: 'create-reply-draft returned no draft id' }) : ok({ mode: 'created', draftId });
@@ -44,7 +44,7 @@ const createDraft = async (deps: Deps, request: DraftApplyRequest): Promise<Resu
 
 // An existing draft on the conversation is patched in place, never duplicated.
 const updateDraft = async (deps: Deps, messageId: string, request: DraftApplyRequest): Promise<Result<DraftApplySummary, DraftApplyError>> => {
-  const run = await deps.office.execute('update-mail-draft', { messageId, subject: request.subject, bodyContent: request.body, bodyContentType: 'html' });
+  const run = await deps.office.execute('update-mail-draft', { messageId, subject: request.subject, bodyContent: request.body, bodyContentType: 'HTML' });
   return run.ok ? ok({ mode: 'updated', draftId: extractDraftId(run.value) ?? messageId }) : err({ kind: 'draft-failed', message: run.error.message });
 };
 

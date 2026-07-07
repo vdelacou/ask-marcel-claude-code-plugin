@@ -6,6 +6,8 @@ import { err, ok, unwrap } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
 import { createLoggerFake } from '../test-helpers/logger-fake.ts';
 import type { LoggerFake } from '../test-helpers/logger-fake.ts';
+import { createOfficeFake } from '../test-helpers/office-fake.ts';
+import type { OfficeCall, OfficeFake } from '../test-helpers/office-fake.ts';
 import { createStateStoreFake } from '../test-helpers/state-store-fake.ts';
 import type { StateStoreFake } from '../test-helpers/state-store-fake.ts';
 import { createDraftApply } from './draft-apply.ts';
@@ -16,7 +18,6 @@ const RUN_ID = unwrap(parseRunId('run-20260704-135959'));
 const REQUEST: DraftApplyRequest = { runId: RUN_ID, emailId: 'msg-1', conversationId: 'conv-1', replyToMessageId: 'msg-1', subject: 'RE: Q3', body: '<p>Reply</p>' };
 
 type OfficeResp = Result<unknown, OfficeError>;
-type OfficeCall = { readonly command: string; readonly params: Record<string, string> };
 
 type Overrides = { readonly drafts?: OfficeResp; readonly create?: OfficeResp; readonly update?: OfficeResp };
 
@@ -26,70 +27,63 @@ const commandFailed = (message: string): OfficeResp => err({ kind: 'command-fail
 
 type Setup = {
   readonly draftApply: ReturnType<typeof createDraftApply>;
-  readonly officeLog: ReadonlyArray<OfficeCall>;
+  readonly office: OfficeFake;
   readonly stateStore: StateStoreFake;
   readonly logger: LoggerFake;
 };
 
 const setup = (emailState: EmailState, overrides: Overrides = {}): Setup => {
-  const officeLog: OfficeCall[] = [];
   const stateStore = createStateStoreFake({ [RUN_ID]: { 'msg-1': emailState } });
   const logger = createLoggerFake();
-  const draftApply = createDraftApply({
-    office: {
-      execute: async (command, params) => {
-        officeLog.push({ command, params });
-        if (command === 'list-mail-folder-messages') return overrides.drafts ?? listing([]);
-        if (command === 'create-reply-draft') return overrides.create ?? draftResource('new-draft-1');
-        if (command === 'update-mail-draft') return overrides.update ?? draftResource('existing-draft-1');
-        return err({ kind: 'unknown-command', message: command });
-      },
-    },
-    stateStore,
-    logger,
+  // The office fake enforces the library's param contracts, so a wrong bodyContentType fails here.
+  const office = createOfficeFake({
+    'list-mail-folder-messages': async () => overrides.drafts ?? listing([]),
+    'create-reply-draft': async () => overrides.create ?? draftResource('new-draft-1'),
+    'update-mail-draft': async () => overrides.update ?? draftResource('existing-draft-1'),
   });
-  return { draftApply, officeLog, stateStore, logger };
+  const draftApply = createDraftApply({ office, stateStore, logger });
+  return { draftApply, office, stateStore, logger };
 };
 
 describe('draft-apply', () => {
   test('an approved email with no existing draft creates a threaded reply-all draft and advances the state', async () => {
-    const { draftApply, officeLog, stateStore, logger } = setup('user_approved');
+    const { draftApply, office, stateStore, logger } = setup('user_approved');
 
     const result = await draftApply(REQUEST);
 
     expect(result).toEqual({ ok: true, value: { mode: 'created', draftId: 'new-draft-1' } });
     // it searches Drafts by conversation, then creates a threaded reply draft (never a fresh compose)
-    expect(officeLog).toEqual([
+    expect(office.calls).toEqual([
       { command: 'list-mail-folder-messages', params: { mailFolderId: 'drafts', filter: "conversationId eq 'conv-1'", select: 'id,conversationId' } },
-      { command: 'create-reply-draft', params: { replyToMessageId: 'msg-1', bodyContent: '<p>Reply</p>', bodyContentType: 'html' } },
+      { command: 'create-reply-draft', params: { replyToMessageId: 'msg-1', bodyContent: '<p>Reply</p>', bodyContentType: 'HTML' } },
     ]);
     expect(stateStore.snapshot(RUN_ID)).toEqual({ 'msg-1': 'draft_created' });
     expect(logger.calls).toEqual([{ level: 'info', event: 'draft-applied', meta: { emailId: 'msg-1', mode: 'created' } }]);
   });
 
   test('an approved email that already has a draft on the conversation patches it in place, never duplicating', async () => {
-    const { draftApply, officeLog, stateStore } = setup('user_approved', { drafts: listing([{ id: 'existing-draft-1', conversationId: 'conv-1' }]) });
+    const { draftApply, office, stateStore } = setup('user_approved', { drafts: listing([{ id: 'existing-draft-1', conversationId: 'conv-1' }]) });
 
     const result = await draftApply(REQUEST);
 
     expect(result).toEqual({ ok: true, value: { mode: 'updated', draftId: 'existing-draft-1' } });
-    expect(officeLog.some((call) => call.command === 'create-reply-draft')).toBe(false);
-    expect(officeLog).toContainEqual({
+    expect(office.calls.some((call) => call.command === 'create-reply-draft')).toBe(false);
+    expect(office.calls).toContainEqual({
       command: 'update-mail-draft',
-      params: { messageId: 'existing-draft-1', subject: 'RE: Q3', bodyContent: '<p>Reply</p>', bodyContentType: 'html' },
+      params: { messageId: 'existing-draft-1', subject: 'RE: Q3', bodyContent: '<p>Reply</p>', bodyContentType: 'HTML' },
     });
     expect(stateStore.snapshot(RUN_ID)).toEqual({ 'msg-1': 'draft_created' });
   });
 
   test('an email that is not user_approved is refused with no draft touched and no state change', async () => {
     // preflight_ok is one gate short of approval — the code gate must still refuse it
-    const { draftApply, officeLog, stateStore } = setup('preflight_ok');
+    const { draftApply, office, stateStore } = setup('preflight_ok');
 
     const result = await draftApply(REQUEST);
 
     expect(result).toEqual({ ok: false, error: { kind: 'not-approved', message: 'email msg-1 is not user_approved' } });
     // the gate fires before any Graph draft command is issued
-    expect(officeLog).toEqual([]);
+    expect(office.calls).toEqual([]);
     expect(stateStore.snapshot(RUN_ID)).toEqual({ 'msg-1': 'preflight_ok' });
   });
 
