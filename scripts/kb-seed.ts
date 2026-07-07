@@ -9,7 +9,7 @@ import { formatError } from '../src/domain/utilities/format-error.ts';
 import { createSeedKb } from '../src/use-cases/seed-kb.ts';
 import { resolveDataHome } from '../src/composition/data-home.ts';
 
-process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
+process.chdir(resolveDataHome(process.env, process.cwd()));
 
 try {
   const config = loadConfig({ LOG_LEVEL: 'error', ...process.env });

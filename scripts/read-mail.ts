@@ -11,7 +11,7 @@ import { extractMarkdown, extractThreadMessages } from '../src/domain/email-thre
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { resolveDataHome } from '../src/composition/data-home.ts';
 
-process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
+process.chdir(resolveDataHome(process.env, process.cwd()));
 
 const flagValue = (name: string, fallback = ''): string => {
   const index = Bun.argv.indexOf(name);
