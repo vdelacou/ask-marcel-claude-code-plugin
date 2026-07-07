@@ -28,7 +28,7 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "ask-marcel-office-cli": "file:/Users/pa2bra/Documents/CODE/ask-marcel/ask-marcel-office-cli",
+    "ask-marcel-office-cli": "^2.0.0",
     "winston": "^3.19.0"
   }
 }
