@@ -1,5 +1,5 @@
 {
   "name": "email-replu",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Inbox-zero reply plugin (ask-marcel v2): triages the Outlook inbox, researches each email that needs an answer, drafts threaded replies in your voice, and grows an OKF knowledge base. Interim name - ships as ask-marcel (SPEC.md decision 1)."
 }
