@@ -10,6 +10,9 @@ import { isEmailState } from '../src/domain/email-state.ts';
 import { parseRunId } from '../src/domain/run-id.ts';
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { createAdvanceEmailState } from '../src/use-cases/advance-email-state.ts';
+import { resolveDataHome } from '../src/composition/data-home.ts';
+
+process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
 
 const usage = (): never => {
   console.error('usage: bun scripts/state.ts <runId> show | advance <emailId> <toState>');

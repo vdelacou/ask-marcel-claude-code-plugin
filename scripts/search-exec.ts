@@ -9,6 +9,9 @@ import { loadConfig } from '../src/composition/config.ts';
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import type { HitSource } from '../src/domain/search-hits.ts';
 import { createSearchRound } from '../src/use-cases/search-round.ts';
+import { resolveDataHome } from '../src/composition/data-home.ts';
+
+process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
 
 const flagValue = (name: string, fallback = ''): string => {
   const index = Bun.argv.indexOf(name);

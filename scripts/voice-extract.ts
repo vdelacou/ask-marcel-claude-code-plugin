@@ -11,6 +11,9 @@ import { extractCurrentUser, extractManager } from '../src/domain/graph-envelope
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { createExtractVoiceCorpus } from '../src/use-cases/extract-voice-corpus.ts';
 import type { Office } from '../src/use-cases/ports/office.ts';
+import { resolveDataHome } from '../src/composition/data-home.ts';
+
+process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
 
 const flagValue = (name: string, fallback: string): string => {
   const index = Bun.argv.indexOf(name);

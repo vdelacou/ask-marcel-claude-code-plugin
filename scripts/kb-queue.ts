@@ -12,6 +12,9 @@ import { formatError } from '../src/domain/utilities/format-error.ts';
 import { buildDeps } from '../src/composition/build-deps.ts';
 import { loadConfig } from '../src/composition/config.ts';
 import { createAppendKbCandidate, createDrainKbQueue } from '../src/use-cases/kb-queue-store.ts';
+import { resolveDataHome } from '../src/composition/data-home.ts';
+
+process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
 
 const flagValue = (name: string, fallback = ''): string => {
   const index = Bun.argv.indexOf(name);

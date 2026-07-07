@@ -7,6 +7,9 @@
  */
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { runLogin } from '../src/infra/office.ts';
+import { resolveDataHome } from '../src/composition/data-home.ts';
+
+process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
 
 try {
   console.log('login: acquiring a Microsoft 365 session (a browser opens if re-auth is needed)...');

@@ -11,6 +11,9 @@ import { asString, isRecord, parseJson } from '../src/domain/graph-envelopes.ts'
 import type { KbPageInput } from '../src/domain/okf-page.ts';
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { createWriteKbPage } from '../src/use-cases/write-kb-page.ts';
+import { resolveDataHome } from '../src/composition/data-home.ts';
+
+process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
 
 const flagValue = (name: string, fallback = ''): string => {
   const index = Bun.argv.indexOf(name);
