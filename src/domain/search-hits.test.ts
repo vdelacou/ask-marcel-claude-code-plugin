@@ -61,7 +61,7 @@ describe('extractSharepointHits', () => {
     };
 
     expect(extractSharepointHits(data)).toEqual([
-      { source: 'sharepoint', id: 'h1', title: 'Spec.docx', snippet: 'a summary', uri: 'https://sp/spec' },
+      { source: 'sharepoint', id: 'h1', title: 'Spec.docx', snippet: 'a summary', uri: 'https://sp/spec?web=1' },
       { source: 'sharepoint', id: 'h2', title: 'Deck', snippet: '', uri: '' },
     ]);
   });

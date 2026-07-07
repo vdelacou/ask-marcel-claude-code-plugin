@@ -71,7 +71,7 @@ describe('search-round', () => {
     expect(result.hits).toEqual([
       { source: 'kb', id: '#a', title: 'Q3', snippet: 'kb snippet', uri: 'qmd://replu-kb/topics/q3.md' },
       { source: 'mail', id: 'm1', title: 'RE: Q3', snippet: 'mail preview', uri: 'https://outlook/m1' },
-      { source: 'sharepoint', id: 'h1', title: 'Q3.xlsx', snippet: 'sp summary', uri: 'https://sp/q3' },
+      { source: 'sharepoint', id: 'h1', title: 'Q3.xlsx', snippet: 'sp summary', uri: 'https://sp/q3?web=1' },
     ]);
     expect(logger.calls).toEqual([{ level: 'info', event: 'search-round', meta: { query: 'Q3 envelope', backends: 3, hits: 3, errors: 0 } }]);
   });

@@ -393,7 +393,7 @@ describe('fetch-email-bundle', () => {
       {
         url: 'https://x.sharepoint.com/a',
         name: 'Spec.docx',
-        webUrl: 'https://x.sharepoint.com/Spec.docx',
+        webUrl: 'https://x.sharepoint.com/Spec.docx?web=1',
         driveId: 'd1',
         itemId: 'i1',
         path: 'sharepoint/01-01-spec-docx.md',
@@ -416,7 +416,7 @@ describe('fetch-email-bundle', () => {
     if (!result.ok) throw new Error('expected ok');
     expect(written.some((w) => w.path.includes('/sharepoint/'))).toBe(false);
     expect(manifestOf(written).messages[0]?.['sharepointDocs']).toEqual([
-      { url: 'https://x.sharepoint.com/a', name: 'Spec.docx', webUrl: 'https://x.sharepoint.com/Spec.docx', driveId: 'd1', itemId: 'i1', status: 'failed' },
+      { url: 'https://x.sharepoint.com/a', name: 'Spec.docx', webUrl: 'https://x.sharepoint.com/Spec.docx?web=1', driveId: 'd1', itemId: 'i1', status: 'failed' },
     ]);
   });
 
@@ -452,7 +452,7 @@ describe('fetch-email-bundle', () => {
     expect(docs.find((doc) => doc['url'] === 'https://x.sharepoint.com/nameless')).toEqual({
       url: 'https://x.sharepoint.com/nameless',
       name: '(unnamed)',
-      webUrl: 'https://x.sharepoint.com/nameless',
+      webUrl: 'https://x.sharepoint.com/nameless?web=1',
       driveId: 'd3',
       itemId: 'i3',
       path: 'sharepoint/01-03-unnamed.md',
@@ -493,7 +493,7 @@ describe('fetch-email-bundle', () => {
     expect((entry?.['sharepointDocs'] as ReadonlyArray<unknown>)[0]).toEqual({
       url: 'https://x.sharepoint.com/r',
       name: '年度报告.docx',
-      webUrl: 'https://x.sharepoint.com/年度报告',
+      webUrl: 'https://x.sharepoint.com/年度报告?web=1',
       driveId: 'd1',
       itemId: 'i1',
       path: 'sharepoint/01-01-年度报告-docx.md',

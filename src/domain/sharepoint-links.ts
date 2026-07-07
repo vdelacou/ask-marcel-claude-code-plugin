@@ -6,13 +6,20 @@ export type ErroredLink = { readonly url: string; readonly error: string };
 
 export type SharepointLink = ResolvedLink | ErroredLink;
 
+// Append ?web=1 so a cited SharePoint link opens in the browser (Office web) instead of handing off to
+// the desktop client. Idempotent, respects an existing query string, leaves an empty url untouched.
+export const withWebParam = (url: string): string => {
+  if (url === '' || url.includes('?web=1') || url.includes('&web=1')) return url;
+  return url.includes('?') ? `${url}&web=1` : `${url}?web=1`;
+};
+
 const toLink = (link: Record<string, unknown>): SharepointLink | undefined => {
   const url = asString(link['url']);
   if (url === undefined) return undefined;
   const driveId = asString(link['driveId']);
   const itemId = asString(link['itemId']);
   if (driveId !== undefined && itemId !== undefined) {
-    return { url, name: asString(link['name']) ?? '(unnamed)', webUrl: asString(link['webUrl']) ?? url, driveId, itemId };
+    return { url, name: asString(link['name']) ?? '(unnamed)', webUrl: withWebParam(asString(link['webUrl']) ?? url), driveId, itemId };
   }
   return { url, error: asString(link['error']) ?? 'unresolved' };
 };

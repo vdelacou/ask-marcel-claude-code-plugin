@@ -1,4 +1,5 @@
 import { asString, isRecord } from './graph-envelopes.ts';
+import { withWebParam } from './sharepoint-links.ts';
 
 export type HitSource = 'kb' | 'mail' | 'sharepoint';
 
@@ -37,7 +38,7 @@ const toSharepointHit = (hit: Record<string, unknown>): SearchHit | undefined =>
     id,
     title: asString(resource['name']) ?? asString(resource['title']) ?? id,
     snippet: asString(hit['summary']) ?? '',
-    uri: asString(resource['webUrl']) ?? '',
+    uri: withWebParam(asString(resource['webUrl']) ?? ''),
   };
 };
 
