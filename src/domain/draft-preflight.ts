@@ -8,6 +8,12 @@
 
 export type Finding = { readonly line: number; readonly kind: 'em-dash' | 'en-dash' | 'phrase'; readonly detail: string };
 
+/** A blank draft is not "clean" — it is an error. Guards the false-clean bug: an empty read (positional path ignored, empty stdin) must not exit 0. */
+export const isBlankDraft = (draft: string): boolean => draft.trim().length === 0;
+
+/** No draft to read: no --file AND stdin is an interactive TTY (nothing piped) — reading it would hang or yield an empty false-clean. */
+export const hasNoDraftSource = (hasFile: boolean, stdinIsTty: boolean): boolean => !hasFile && stdinIsTty;
+
 /** Phrases from every fenced block under an anti-style/anti-slop heading: one per line, no markers. */
 export const parseAntiStyle = (markdown: string): ReadonlyArray<string> => {
   const phrases: string[] = [];

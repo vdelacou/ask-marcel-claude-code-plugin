@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { detectDraftFindings, parseAntiStyle } from './draft-preflight.ts';
+import { detectDraftFindings, hasNoDraftSource, isBlankDraft, parseAntiStyle } from './draft-preflight.ts';
 
 const PROFILE = `# Voice
 
@@ -39,5 +39,20 @@ describe('draft preflight', () => {
 
   test('a clean draft passes with no findings', () => {
     expect(detectDraftFindings('Hello Jane,\nConfirmed for Ledger - aligned with the group choice.\nVincent', parseAntiStyle(PROFILE))).toEqual([]);
+  });
+
+  test('a blank draft is not clean - it is a preflight error, so an empty read cannot pass as clean', () => {
+    // the false-clean bug: an empty body (positional path ignored, empty stdin) must never report clean
+    expect(isBlankDraft('')).toBe(true);
+    expect(isBlankDraft('   \n\t ')).toBe(true);
+    expect(isBlankDraft('Re: x\nhello')).toBe(false);
+  });
+
+  test('there is no draft source when no --file is given and stdin is a TTY (would hang / read nothing)', () => {
+    expect(hasNoDraftSource(false, true)).toBe(true);
+    // a piped stdin (not a TTY) or an explicit --file is a real source
+    expect(hasNoDraftSource(false, false)).toBe(false);
+    expect(hasNoDraftSource(true, true)).toBe(false);
+    expect(hasNoDraftSource(true, false)).toBe(false);
   });
 });

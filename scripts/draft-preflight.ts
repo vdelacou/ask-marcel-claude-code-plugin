@@ -4,7 +4,7 @@
  * ship (SPEC.md §9). Body from --file or stdin; the subject is checked via
  * --subject without entering the body. Exit 0 clean, 1 findings, 2 read error.
  */
-import { detectDraftFindings, parseAntiStyle } from '../src/domain/draft-preflight.ts';
+import { detectDraftFindings, hasNoDraftSource, isBlankDraft, parseAntiStyle } from '../src/domain/draft-preflight.ts';
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { resolveDataHome } from '../src/composition/data-home.ts';
 
@@ -25,6 +25,10 @@ const readOptional = async (path: string): Promise<string> => {
 
 try {
   const file = flagValue('--file', '');
+  if (hasNoDraftSource(file !== '', Boolean(process.stdin.isTTY))) {
+    console.error('error: no draft to check - pass --file <path> or pipe the body on stdin (a positional path is ignored)');
+    process.exit(2);
+  }
   let body: string;
   try {
     body = file === '' ? await Bun.stdin.text() : await Bun.file(file).text();
@@ -34,6 +38,10 @@ try {
   }
   const subject = flagValue('--subject', '');
   const draft = subject === '' ? body : `${subject}\n${body}`;
+  if (isBlankDraft(draft)) {
+    console.error('error: draft is empty - refusing to report clean on an empty read');
+    process.exit(2);
+  }
   const profile = await readOptional(flagValue('--voice-profile', 'data/profile/voice-profile.md'));
   const catalog = await readOptional(flagValue('--anti-slop-catalog', `${import.meta.dir}/../references/anti-slop-catalog.md`));
   const findings = detectDraftFindings(draft, [...parseAntiStyle(profile), ...parseAntiStyle(catalog)]);
