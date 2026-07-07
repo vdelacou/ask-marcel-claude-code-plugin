@@ -11,7 +11,7 @@ import { renderDoctorJson, renderDoctorText } from '../src/presenter/doctor-repo
 import { createRunDoctor } from '../src/use-cases/run-doctor.ts';
 import { resolveDataHome } from '../src/composition/data-home.ts';
 
-process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
+process.chdir(resolveDataHome(process.env, process.cwd()));
 
 try {
   // Default the logger to error-level so the report (and especially --json,

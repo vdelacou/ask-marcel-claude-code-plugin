@@ -10,7 +10,7 @@ import { formatError } from '../src/domain/utilities/format-error.ts';
 import { createLintKb } from '../src/use-cases/lint-kb.ts';
 import { resolveDataHome } from '../src/composition/data-home.ts';
 
-process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
+process.chdir(resolveDataHome(process.env, process.cwd()));
 
 try {
   const deps = buildDeps(loadConfig({ LOG_LEVEL: 'error', ...process.env }));

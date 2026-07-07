@@ -1,8 +1,8 @@
-// Where data/ (KB, profile, mail scratch) lives, independent of the folder the plugin is launched
-// from (SPEC.md v0.1 baseDir). Defaults to the plugin's own root; ASK_MARCEL_HOME overrides it —
-// needed once the plugin is installed from the ephemeral ~/.claude/plugins/cache, whose root is not
-// a stable data home. Every script entry chdir's here before it touches any data/ path.
-export const resolveDataHome = (env: Readonly<Record<string, string | undefined>>, pluginRoot: string): string => {
+// Where data/ (KB, profile, mail scratch) lives. By default this is the caller's current working
+// directory (the folder Claude Code was launched from), so KB/profile/scratch live alongside where
+// you run the plugin, not in the ephemeral ~/.claude/plugins/cache. ASK_MARCEL_HOME overrides it with
+// a fixed path. Every script entry chdir's to the result before it touches any data/ path.
+export const resolveDataHome = (env: Readonly<Record<string, string | undefined>>, fallback: string): string => {
   const home = env['ASK_MARCEL_HOME'];
-  return home === undefined || home === '' ? pluginRoot : home;
+  return home === undefined || home === '' ? fallback : home;
 };
