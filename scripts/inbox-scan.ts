@@ -10,6 +10,9 @@ import { loadConfig } from '../src/composition/config.ts';
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { createScanInbox } from '../src/use-cases/scan-inbox.ts';
 import type { ScanScope } from '../src/use-cases/scan-inbox.ts';
+import { resolveDataHome } from '../src/composition/data-home.ts';
+
+process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
 
 const flagValue = (name: string, fallback: string): string => {
   const index = Bun.argv.indexOf(name);

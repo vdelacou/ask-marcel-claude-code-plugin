@@ -7,6 +7,9 @@ import { buildDeps } from '../src/composition/build-deps.ts';
 import { loadConfig } from '../src/composition/config.ts';
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { createGenKbIndex } from '../src/use-cases/gen-kb-index.ts';
+import { resolveDataHome } from '../src/composition/data-home.ts';
+
+process.chdir(resolveDataHome(process.env, `${import.meta.dir}/..`));
 
 try {
   const deps = buildDeps(loadConfig({ LOG_LEVEL: 'error', ...process.env }));
