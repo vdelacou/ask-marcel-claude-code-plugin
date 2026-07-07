@@ -33,7 +33,7 @@ For each `researched` email, in urgency order:
 
 9. **Strategy gate.** AskUserQuestion the three strategies (+ Other). Advance `context_confirmed -> strategy_chosen`.
 
-10. **Draft.** In the main thread, using the voice-profile bucket voice (`data/profile/voice-profile.md`), the signature, and the thread/recipient language. Advance `strategy_chosen -> drafted`.
+10. **Draft.** In the main thread, write the reply using the voice-profile bucket voice (`data/profile/voice-profile.md`) and the thread/recipient language. Form the HTML body by substituting the reply into `data/profile/draft-template.html` at its `{{BODY}}` marker - the template carries the user's default font/color wrapper (Aptos 11pt, black) and their self-contained signature (logo images inlined as base64). If the template is absent, wrap the reply in `<div style="font-family: Aptos, Calibri, sans-serif; font-size: 11pt; color: #000000;">...</div>` and add a short text sign-off from `data/profile/user.md`. Advance `strategy_chosen -> drafted`.
 
 11. **Preflight.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/draft-preflight.ts"` must exit 0 (em-dashes and anti-style phrases are hard-blocked); rewrite until clean. Advance `drafted -> preflight_ok`.
 
