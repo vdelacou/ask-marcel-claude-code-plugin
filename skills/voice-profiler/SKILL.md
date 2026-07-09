@@ -1,5 +1,5 @@
 ---
-name: voice-profile
+name: voice-profiler
 description: Build or refresh the user's writing-style profile from their last ~50 substantive sent messages across ALL folders - per-bucket patterns (upward/peers/external/broadcast), verbatim examples, language rules, and the anti-style list feeding the deterministic draft-preflight gate. Writes data/profile/voice-profile.md and about-me.md (never into the KB). Use when the user says "build my voice profile", "refresh my style", "calibrate my tone", "analyze how I write", "my replies don't sound like me", or when the wrap-up drift alert recommends it. Do NOT run as part of drafting flows - it is an occasional, user-triggered refresh (~2 minutes).
 ---
 

@@ -12,7 +12,7 @@ Builds on proven assets from `~/Documents/CODE/ask-marcel/ask-marcel-plugin` (po
 5. KB capture is **queued per email** and drained in one batch — same guarantee as "capture after every read", ~5× fewer lint/embed cycles.
 6. **Always-loaded context**: `data/profile/user.md` + `data/kb/jargon/abbreviations.md` are injected at session start (SessionStart hook) and re-verified as step 1 of every skill — nothing starts before they are read.
 7. **Contradiction gate**: new information that contradicts the KB or `user.md` is never written silently — the main thread asks the user for the truth via AskUserQuestion; unattended runs buffer contradictions to a reconcile queue drained at the next interactive session.
-8. **Language**: KB and profile CONTENT are written in the user's primary language (auto-detected from sent mail during voice-profile build, stored in `about-me.md`); email drafts follow thread/recipient language per voice rules. Reserved structure stays English as machine-parsed identifiers: OKF frontmatter keys, section headings (`## Commitments`, `## Key people`), state names, check ids - localizing them would break every parser downstream (decision 23).
+8. **Language**: KB and profile CONTENT are written in the user's primary language (auto-detected from sent mail during voice-profiler build, stored in `about-me.md`); email drafts follow thread/recipient language per voice rules. Reserved structure stays English as machine-parsed identifiers: OKF frontmatter keys, section headings (`## Commitments`, `## Key people`), state names, check ids - localizing them would break every parser downstream (decision 23).
 
 ---
 
@@ -26,7 +26,7 @@ ask-marcel/
 ├── skills/
 │   ├── setup/SKILL.md                # doctor + guided installs + KB init + profile
 │   ├── inbox-zero/SKILL.md           # the main orchestrator (phases 1–5)
-│   ├── voice-profile/SKILL.md        # build/refresh writing profile
+│   ├── voice-profiler/SKILL.md       # build/refresh writing profile
 │   └── kb-gardener/SKILL.md          # recurring KB cleaning/curation
 ├── agents/
 │   ├── triage-scout.md               # per-email needs-reply verdict (haiku)
@@ -85,7 +85,7 @@ ask-marcel/
 3. **ask-marcel-office** present (≥2.0.0 — the binary was renamed from `ask-marcel` at v2; `create-reply-draft` still pending, target next release) → `npm i -g ask-marcel-office-cli` / `ask-marcel-office update`.
 4. **M365 auth** → probe with a cheap GET; only on failure propose `ask-marcel login`.
 5. **KB initialized** → if `data/kb/` missing: create tree + root `index.md` (okf_version) + `log.md` + per-folder `index.md`; `qmd collection add data/kb --name ask-marcel-kb`; `qmd context add 'qmd://ask-marcel-kb' "…"`; `qmd update && qmd embed`.
-6. **Voice profile exists** in `data/profile/` → if not, run `voice-profile` skill (§9).
+6. **Voice profile exists** in `data/profile/` → if not, run `voice-profiler` skill (§9).
 7. **KB seeding** (first run only): create person pages for the manager, direct reports, and top colleagues (`list-relevant-people`), plus organization pages derived from their email domains (Graph enrichment: title, manager links). ~20–40 small pages, `source: seed`; one `qmd update && qmd embed` at the end.
 8. **Scheduling** (optional, proposed at setup): register the weekly `kb-gardener` task, and the weekday **pre-research** run (time chosen by the user, e.g. 06:30) — both via Claude Code scheduled tasks.
 Every fix is proposed via AskUserQuestion before running; doctor re-runs at the end (idempotent).
@@ -262,7 +262,7 @@ Everything in `data/profile/` — outside the qmd collection, invisible to searc
   3. Banned-patterns list: AI tells absent from the real mail (basis of `draft-preflight.ts`, incl. em/en-dash HARD RULE).
   4. `about-me.md`: name, title, manager (`manager_confirmed` flag), reports, languages — user-corrected fields never overwritten on refresh.
 - Signature (`signature.html/.txt` + logo) captured from sent mail; embedded in drafts.
-- **Refresh policy — manual + drift alert**: no automatic rebuilds. Each run records how many approved drafts the user edited or rejected after preflight; when the rolling edit/reject rate crosses a threshold (>40% over the last 10 drafts), the wrap-up report recommends a `voice-profile` refresh. User-confirmed fields are always preserved on refresh.
+- **Refresh policy — manual + drift alert**: no automatic rebuilds. Each run records how many approved drafts the user edited or rejected after preflight; when the rolling edit/reject rate crosses a threshold (>40% over the last 10 drafts), the wrap-up report recommends a `voice-profiler` refresh. User-confirmed fields are always preserved on refresh.
 
 ---
 
@@ -293,7 +293,7 @@ Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/
 
 1. **Plugin name** — DECIDED: `ask-marcel` (this plugin is ask-marcel v2). ⚠ **Namespace collision**: the existing ask-marcel plugin is installed under the same name (`ask-marcel:*` skills). Before this one is installed, the old plugin must be disabled, uninstalled, or renamed — to be handled at ship time (a v0.1 interim name in `plugin.json` during development is fine; the manifest name is a one-line change).
 2. **Inbox scope default** — DECIDED: unread-only, with `--scope all|unread|since-watermark` flag (cap 50).
-3. **KB + profile language** — DECIDED: the user's primary language, auto-detected from sent mail during voice-profile build.
+3. **KB + profile language** — DECIDED: the user's primary language, auto-detected from sent mail during voice-profiler build.
 4. **git init** — DECIDED: repo initialized, `data/` gitignored (KB, profile, scratch never leave the machine).
 5. **Triage default posture** — DECIDED: when in doubt, mark needs-reply; the user deselects at Gate 1.
 6. **Phase 4 rhythm** — DECIDED: 4 gates per email as specced (contradictions → additions → strategy → approval).
@@ -331,7 +331,7 @@ Sending mail (never), calendar writes, Teams chat, mailbox mutations (read/move/
 | M0 ✅ 2026-07-04 | atelier-greenfield scaffold, walking skeleton (one state-machine transition through a use-case port), all 8 gates green. Interim manifest name `ask-marcel` (→ `ask-marcel` at ship, §14.1) | The engineering machine works |
 | M1 ✅ 2026-07-04 | Doctor + `setup` skill: CLI/qmd/bun checks + guided installs, M365 auth probe, OKF KB init, qmd collection, Graph people/org seeding (16 real pages). Schedule registration deferred to M7 with the scheduling machinery; known gap: entry scripts resolve `data/` from the working directory (run from repo root in v0.1) | Setup end-to-end on a clean machine |
 | M2 ✅ 2026-07-04 | `inbox-scan` + triage-scout agent + Gate 1 + run report. Deterministic layer landed (rules incl. FR calendar prefixes, envelopes, run bootstrap, file state store with baseDir, both CLIs — verified on the real inbox incl. illegal-transition refusal); agent + skill landed; first live triage: 10 real mails, 10 scout verdicts (thread-aware supersede detection), Gate 1 exercised with user overrides recorded in state.json. Observed for M5: users think per-conversation at Gate 1 - group thread messages there | **First daily value: the triage table** |
-| M3 + M3.5 ✅ 2026-07-04 | `voice-profile` skill (fresh + carried banned-list) + `draft-preflight` gate. Live: 43-message corpus from real sent mail (peers 20, external 18, broadcast 5, upward 0 - no directory manager), EN-default voice profiled with verbatim examples and ESL fingerprint preserved; gate proven against the real profile. Signature HTML capture deferred to the setup-signature slice. M3.5: any-language hardening per decision 23 (odata calendar detection, unicode slugs, CJK substantive filter, 10-language chain cutting) | Voice captured; drafts become possible in principle |
+| M3 + M3.5 ✅ 2026-07-04 | `voice-profiler` skill (fresh + carried banned-list) + `draft-preflight` gate. Live: 43-message corpus from real sent mail (peers 20, external 18, broadcast 5, upward 0 - no directory manager), EN-default voice profiled with verbatim examples and ESL fingerprint preserved; gate proven against the real profile. Signature HTML capture deferred to the setup-signature slice. M3.5: any-language hardening per decision 23 (odata calendar detection, unicode slugs, CJK substantive filter, 10-language chain cutting) | Voice captured; drafts become possible in principle |
 | M4 ✅ 2026-07-04 | CLI interlude: `create-reply-draft` landed in ask-marcel-office-cli (commits a2b28da + becf4db, v2.1.0, through that repo's gates; 4388 tests). Live-proven: real threaded reply-all draft created on a live thread (inherited RE: subject + 5 recipients, isDraft guard passed). npm publish + doctor-gate flip to ≥2.1.0 pending the library publish | The only cross-repo dependency, done before it blocks |
 | M5 ✅ 2026-07-06 | Research pipeline, all green (≥90% Stryker), all on the Office library (decision 19): `fetch-email-bundle` (thread + attachments + images + SP-B2 SharePoint download), `read-doc` (markdown with a scrambled→PDF fallback), the search module (§6 — parallel kb/mail/sharepoint, all three shapes verified against live qmd + Graph), the `email-researcher` agent, and the KB candidate queue. Img-B (doc-embedded images) implemented in `read-doc` via `extract-drive-item-images`, best-effort and non-fatal (2026-07-06) | Phase 3 works headless |
 | M6 ✅ 2026-07-06 | `draft-apply` — the **code** approval gate (decision 19 consequence i, replacing the inert Bash draft-gate hook): refuses unless the email is `user_approved`, then `create-reply-draft` / `update-mail-draft` (never duplicated), advances to `draft_created`, never sends. Plus `write-kb-page` + the `kb-curator` agent, and the `inbox-zero` skill's full Phase 0-5 orchestration (the four drafting gates → draft → KB capture → wrap) | **Full inbox-zero v0.1** |

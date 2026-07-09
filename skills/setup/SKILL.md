@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Verify and complete the plugin setup so every other skill runs clean - the bun and qmd tools, the Microsoft 365 library session, the OKF knowledge base and its qmd collection, directory seeding, and the always-loaded user.md profile. Use when the user says "set up the plugin", "is the plugin ready", "check my setup", "plugin health check", "run the doctor", "onboard me", "first run", or when another skill fails on a missing prerequisite. Do NOT use for building the voice profile (that is the voice-profile skill) or for answering questions.
+description: Verify and complete the plugin setup so every other skill runs clean - the bun and qmd tools, the Microsoft 365 library session, the OKF knowledge base and its qmd collection, directory seeding, and the always-loaded user.md profile. Use when the user says "set up the plugin", "is the plugin ready", "check my setup", "plugin health check", "run the doctor", "onboard me", "first run", or when another skill fails on a missing prerequisite. Do NOT use for building the voice profile (that is the voice-profiler skill) or for answering questions.
 ---
 
 # Setup
@@ -24,7 +24,7 @@ v0.1 note: you can run this from any working directory - the entry scripts resol
    | `auth` | `bun "${CLAUDE_PLUGIN_ROOT}/scripts/login.ts"` (the library's browser sign-in; one-time `bunx playwright install` for the browser binaries). NEVER run it preemptively - only when the auth check failed and the user said yes (probe-first discipline). Microsoft 365 access is library-only; there is no `ask-marcel-office` binary to install or version-check (SPEC §15.1). |
    | `kb` | `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-init.ts"` - idempotent, never touches an existing KB. |
    | `qmd-collection` | `qmd collection add data/kb --name ask-marcel-kb`, then `qmd context add 'qmd://ask-marcel-kb' "OKF knowledge base of the inbox-zero reply plugin (ask-marcel v2). People, orgs, projects, topics, decisions, meetings, jargon captured from the user's mail. Query FIRST before falling through to Microsoft 365."`, then `qmd update -c ask-marcel-kb && qmd embed -c ask-marcel-kb`. |
-   | `voice-profile` | Not fixable here - route the user to the voice-profile skill ("build my voice profile"), which analyzes their sent mail and writes `data/profile/voice-profile.md`. Do not fake the file. |
+   | `voice-profile` | Not fixable here - route the user to the voice-profiler skill ("build my voice profile"), which analyzes their sent mail and writes `data/profile/voice-profile.md`. Do not fake the file. |
    | `user-md` | Step 4 below. |
 
 4. **Seed user.md (interactive).** This is the always-loaded context about the user - never invent it. Ask up to three questions (AskUserQuestion, free text welcome): (a) role and current top priorities, (b) standing instructions for replies ("always CC X on topic Y", "never commit dates for Z"), (c) active constraints (working hours, travel, languages). Then Write `data/profile/user.md` from the template below, show it, and confirm. Keep it under ~30 lines now; the hard cap is 150 (SPEC.md decision 13). Facts about OTHER people never go here - they belong in the KB.
@@ -65,5 +65,5 @@ source: setup
 
 - Probe-first: never run `bun "${CLAUDE_PLUGIN_ROOT}/scripts/login.ts"` unless the auth check failed AND the user approved.
 - Never modify `data/kb/` by hand in this skill - only through the scripts, so the log and the index stay consistent.
-- Never write `voice-profile.md` - that file belongs to the voice-profile skill.
+- Never write `voice-profile.md` - that file belongs to the voice-profiler skill.
 - Every fix behind an explicit yes; every skipped fix named in the final report.
