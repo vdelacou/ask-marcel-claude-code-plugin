@@ -35,6 +35,7 @@ describe('createBunFileLister (production wiring smoke)', () => {
     // globs the source tree (present under cwd in every environment) rather than the gitignored data/kb
     const result = await createBunFileLister().list('src/infra/*.ts');
     expect(result.ok).toBe(true);
-    expect(result.ok && result.value.includes('src/infra/file-lister.ts')).toBe(true);
+    // Bun.Glob yields OS-native separators (backslash on Windows), so normalize before the includes check.
+    expect(result.ok && result.value.some((p) => p.replaceAll('\\', '/') === 'src/infra/file-lister.ts')).toBe(true);
   });
 });

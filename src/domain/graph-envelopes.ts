@@ -90,6 +90,7 @@ const messageToInbox = (message: Record<string, unknown>): InboxMessage | undefi
   return {
     id,
     conversationId,
+    internetMessageId: asString(message['internetMessageId']) ?? '',
     subject: asString(message['subject']) ?? '(no subject)',
     fromName: asString(sender['name']) ?? address,
     fromAddress: address,

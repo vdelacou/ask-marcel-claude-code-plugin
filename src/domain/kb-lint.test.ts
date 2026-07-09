@@ -24,6 +24,25 @@ describe('lintKb', () => {
     ).toEqual([]);
   });
 
+  test('reserved files are still exempted on Windows backslash paths (Bun.Glob yields \\)', () => {
+    expect(
+      lintKb([
+        { path: 'data\\kb\\people\\index.md', content: '# People\n\nno frontmatter' },
+        { path: 'data\\kb\\log.md', content: '# Log\n' },
+      ])
+    ).toEqual([]);
+  });
+
+  test('a duplicate slug is still detected across folders on Windows backslash paths', () => {
+    const issues = lintKb([
+      page('data\\kb\\people\\jane.md', CONFORMANT),
+      page('data\\kb\\orgs\\jane.md', ['type: organization', 'title: Jane Inc', 'description: a company', 'timestamp: 2026-07-06']),
+    ]);
+    const dups = issues.filter((issue) => issue.kind === 'duplicate-slug');
+    expect(dups.map((issue) => issue.path)).toEqual(['data\\kb\\people\\jane.md', 'data\\kb\\orgs\\jane.md']);
+    expect(dups[0]?.detail).toBe("slug 'jane' is shared by 2 pages");
+  });
+
   test('a concept page with no frontmatter block is flagged', () => {
     expect(lintKb([{ path: 'data/kb/people/jane.md', content: '# Jane\n\nbody, no frontmatter' }])).toEqual([
       { path: 'data/kb/people/jane.md', kind: 'no-frontmatter', detail: 'page has no --- frontmatter block' },

@@ -72,7 +72,7 @@ data/              # runtime KB / profile / scratch — gitignored, never leaves
 
 `bun scripts/kb-queue.ts append --run-id <id> --candidate '<json>' | drain --run-id <id> [--json]` — queue research facts/jargon per run (§8), drained in one batch to kb-curator at wrap-up.
 
-`bun scripts/draft-apply.ts --run-id <id> --email-id <id> --conversation-id <id> --reply-to <messageId> --subject "<s>" --body-file <path> [--json]` — Phase 4 (§2): create or update the UNSENT reply draft for a `user_approved` email (the code approval gate), then advance to `draft_created`. Never sends.
+`bun scripts/draft-apply.ts --run-id <id> --email-id <id> --conversation-id <id> --reply-to <messageId> --subject "<s>" --body-file <path> [--json]` — Phase 4 (§2): create or update the UNSENT reply draft for a `user_approved` email (the code approval gate), then advance to `draft_created`. Never sends. `--reply-to` takes the Graph message `id` (the value `inbox-scan` surfaces on each candidate, not the RFC-822 `internetMessageId`). On create the subject is inherited (`RE:` auto-prefixed); `--subject` applies only on update and is flagged `subject-ignored-on-create` if passed on create.
 
 `bun scripts/read-mail.ts --message-id <id>` (prints one message as markdown) or `--conversation-id <id> [--top N] [--json]` (lists a thread) — the R4-compliant read path used by triage-scout.
 

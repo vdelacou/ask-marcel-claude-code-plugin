@@ -51,14 +51,26 @@ describe('draft-apply', () => {
 
     const result = await draftApply(REQUEST);
 
-    expect(result).toEqual({ ok: true, value: { mode: 'created', draftId: 'new-draft-1' } });
+    expect(result).toEqual({ ok: true, value: { mode: 'created', draftId: 'new-draft-1', subjectIgnored: true } });
     // it searches Drafts by conversation, then creates a threaded reply draft (never a fresh compose)
     expect(office.calls).toEqual([
       { command: 'list-mail-folder-messages', params: { mailFolderId: 'drafts', filter: "conversationId eq 'conv-1'", select: 'id,conversationId' } },
       { command: 'create-reply-draft', params: { replyToMessageId: 'msg-1', bodyContent: '<p>Reply</p>', bodyContentType: 'HTML' } },
     ]);
     expect(stateStore.snapshot(RUN_ID)).toEqual({ 'msg-1': 'draft_created' });
-    expect(logger.calls).toEqual([{ level: 'info', event: 'draft-applied', meta: { emailId: 'msg-1', mode: 'created' } }]);
+    expect(logger.calls).toEqual([
+      { level: 'warn', event: 'subject-ignored-on-create', meta: { emailId: 'msg-1', subject: 'RE: Q3' } },
+      { level: 'info', event: 'draft-applied', meta: { emailId: 'msg-1', mode: 'created' } },
+    ]);
+  });
+
+  test('a create with no --subject is not flagged (the inherited RE: subject is the expected path)', async () => {
+    const { draftApply, logger } = setup('user_approved');
+
+    const result = await draftApply({ ...REQUEST, subject: '' });
+
+    expect(result).toEqual({ ok: true, value: { mode: 'created', draftId: 'new-draft-1' } });
+    expect(logger.calls.some((call) => call.event === 'subject-ignored-on-create')).toBe(false);
   });
 
   test('an approved email that already has a draft on the conversation patches it in place, never duplicating', async () => {

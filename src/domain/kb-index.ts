@@ -1,16 +1,12 @@
 import { readFrontmatter } from './kb-frontmatter.ts';
+import { kbSlugOf } from './okf-kb.ts';
 import type { KbFile } from './okf-kb.ts';
 
 type IndexEntry = { readonly slug: string; readonly title: string; readonly description: string };
 
-const slugOf = (path: string): string => {
-  const base = path.slice(path.lastIndexOf('/') + 1);
-  return base.endsWith('.md') ? base.slice(0, -3) : base;
-};
-
 const toEntry = (page: KbFile): IndexEntry => {
   const fields = readFrontmatter(page.content);
-  const slug = slugOf(page.path);
+  const slug = kbSlugOf(page.path);
   return { slug, title: fields?.get('title') ?? slug, description: fields?.get('description') ?? '' };
 };
 

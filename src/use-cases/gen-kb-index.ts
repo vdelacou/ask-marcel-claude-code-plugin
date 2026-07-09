@@ -1,4 +1,5 @@
 import { renderFolderIndex } from '../domain/kb-index.ts';
+import { isReservedKbFile } from '../domain/okf-kb.ts';
 import { KB_FOLDERS, KB_ROOT } from '../domain/okf-kb.ts';
 import type { KbFile } from '../domain/okf-kb.ts';
 import { err, ok } from '../domain/result.ts';
@@ -35,7 +36,9 @@ export const createGenKbIndex =
       if (!listed.ok) return err(listed.error);
       const pages = await readPages(
         deps,
-        listed.value.filter((path) => !path.endsWith('/index.md'))
+        // Exclude the folder's own index.md (the file being regenerated) from the page listing —
+        // separator-agnostic so the backslash paths Bun.Glob yields on Windows are excluded too (#6).
+        listed.value.filter((path) => !isReservedKbFile(path))
       );
       if (!pages.ok) return err(pages.error);
       const written = await deps.writer.write(`${KB_ROOT}/${folder.name}/index.md`, renderFolderIndex(folder.title, pages.value));

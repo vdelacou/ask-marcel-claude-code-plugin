@@ -17,6 +17,7 @@ const MESSAGES = [
   {
     id: 'm1',
     conversationId: 'c1',
+    internetMessageId: '<m1@internal-corp.com>',
     subject: 'Budget question',
     from: { emailAddress: { name: 'Jane Boss', address: 'jane@internal-corp.com' } },
     receivedDateTime: '2026-07-04T08:00:00Z',
@@ -27,6 +28,7 @@ const MESSAGES = [
   {
     id: 'm2',
     conversationId: 'c2',
+    internetMessageId: '<digest@service.com>',
     subject: 'Your weekly digest',
     from: { emailAddress: { name: 'Service', address: 'no-reply@service.com' } },
     receivedDateTime: '2026-07-04T07:00:00Z',
@@ -93,9 +95,10 @@ describe('scan-inbox', () => {
     const result = await scan(OPTIONS);
 
     if (!result.ok) throw new Error('expected ok');
-    expect(logger.calls).toEqual([{ level: 'info', event: 'inbox-scanned', meta: { runId: RUN_ID, kept: 2, dropped: 1 } }]);
+    expect(logger.calls).toEqual([{ level: 'info', event: 'inbox-scanned', meta: { runId: RUN_ID, kept: 2, dropped: 1, capTruncated: false } }]);
     expect(result.value.runId).toBe(RUN_ID);
     expect(result.value.runId).toMatch(/^run-\d{8}-\d{6}$/);
+    expect(result.value.capTruncated).toBe(false);
     expect(result.value.kept.map((m) => m.id)).toEqual(['m1', 'm3']);
     expect(result.value.dropped).toEqual([{ id: 'm2', subject: 'Your weekly digest', from: 'no-reply@service.com', reason: 'no-reply-sender' }]);
     expect(stateStore.snapshot(RUN_ID)).toEqual({ m1: 'scanned', m3: 'scanned' });
@@ -106,10 +109,12 @@ describe('scan-inbox', () => {
       runId: RUN_ID,
       scannedAt: NOW,
       scope: 'unread',
+      capTruncated: false,
       kept: [
         {
           id: 'm1',
           conversationId: 'c1',
+          internetMessageId: '<m1@internal-corp.com>',
           subject: 'Budget question',
           fromName: 'Jane Boss',
           fromAddress: 'jane@internal-corp.com',
@@ -122,6 +127,7 @@ describe('scan-inbox', () => {
         {
           id: 'm3',
           conversationId: 'c3',
+          internetMessageId: '',
           subject: 'Contract draft',
           fromName: 'Ext Vendor',
           fromAddress: 'vendor@ext-corp.com',
@@ -141,14 +147,14 @@ describe('scan-inbox', () => {
     await unread.scan(OPTIONS);
     expect(unread.officeLog[0]).toEqual({
       command: 'list-mail-folder-messages',
-      params: { mailFolderId: 'inbox', top: '25', filter: 'isRead eq false', select: 'id,conversationId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview' },
+      params: { mailFolderId: 'inbox', top: '25', orderby: 'receivedDateTime desc', filter: 'isRead eq false', select: 'id,conversationId,internetMessageId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview' },
     });
 
     const all = setup(data([]));
     await all.scan({ scope: 'all', cap: 50, blocked: [] });
     expect(all.officeLog[0]).toEqual({
       command: 'list-mail-folder-messages',
-      params: { mailFolderId: 'inbox', top: '50', select: 'id,conversationId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview' },
+      params: { mailFolderId: 'inbox', top: '50', orderby: 'receivedDateTime desc', select: 'id,conversationId,internetMessageId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview' },
     });
   });
 
@@ -157,9 +163,21 @@ describe('scan-inbox', () => {
 
     const result = await scan(OPTIONS);
 
-    expect(result).toEqual({ ok: true, value: { runId: RUN_ID, kept: [], dropped: [] } });
+    expect(result).toEqual({ ok: true, value: { runId: RUN_ID, kept: [], dropped: [], capTruncated: false } });
     expect(stateStore.snapshot(RUN_ID)).toEqual({});
     expect(written).toHaveLength(1);
+  });
+
+  test('a full page (count == cap) flags capTruncated so older mail is not silently dropped', async () => {
+    // cap of 2 with 3 unread messages: the page is full, so the third (oldest, since desc-ordered)
+    // exists beyond the cap and must be surfaced as truncated, not swallowed as a silent drop.
+    const { scan, logger } = setup(data(MESSAGES));
+
+    const result = await scan({ scope: 'unread', cap: 2, blocked: [] });
+
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.value.capTruncated).toBe(true);
+    expect(logger.calls[0]?.meta).toMatchObject({ capTruncated: true });
   });
 
   test('a mail source failure surfaces as source-failed, not a crash', async () => {
@@ -168,6 +186,6 @@ describe('scan-inbox', () => {
 
     // malformed data (not a message envelope) is a well-formed empty run, never a crash
     const garbage = setup(ok('not a record'));
-    expect(await garbage.scan(OPTIONS)).toEqual({ ok: true, value: { runId: RUN_ID, kept: [], dropped: [] } });
+    expect(await garbage.scan(OPTIONS)).toEqual({ ok: true, value: { runId: RUN_ID, kept: [], dropped: [], capTruncated: false } });
   });
 });

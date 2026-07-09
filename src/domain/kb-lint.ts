@@ -1,4 +1,5 @@
 import { readFrontmatter } from './kb-frontmatter.ts';
+import { isReservedKbFile, kbSlugOf } from './okf-kb.ts';
 import type { KbFile } from './okf-kb.ts';
 
 // OKF conformance findings the gardener auto-detects (SPEC §8 kb-gardener Phase 1).
@@ -7,12 +8,8 @@ export type LintIssue = { readonly path: string; readonly kind: 'no-frontmatter'
 const REQUIRED_FIELDS: ReadonlyArray<string> = ['type', 'title', 'description', 'timestamp'];
 
 // index.md and log.md are reserved / generated files, not concept pages — they carry no OKF frontmatter.
-const isConceptPage = (path: string): boolean => !path.endsWith('/index.md') && !path.endsWith('/log.md');
-
-const slugOf = (path: string): string => {
-  const base = path.slice(path.lastIndexOf('/') + 1);
-  return base.endsWith('.md') ? base.slice(0, -3) : base;
-};
+// isReservedKbFile splits on both separators, so this holds on Windows where Bun.Glob yields backslash paths.
+const isConceptPage = (path: string): boolean => !isReservedKbFile(path);
 
 const conformanceIssues = (file: KbFile): ReadonlyArray<LintIssue> => {
   const fields = readFrontmatter(file.content);
@@ -24,7 +21,7 @@ const conformanceIssues = (file: KbFile): ReadonlyArray<LintIssue> => {
 const duplicateSlugIssues = (pages: ReadonlyArray<KbFile>): ReadonlyArray<LintIssue> => {
   const byslug = new Map<string, string[]>();
   for (const page of pages) {
-    const slug = slugOf(page.path);
+    const slug = kbSlugOf(page.path);
     byslug.set(slug, [...(byslug.get(slug) ?? []), page.path]);
   }
   const issues: LintIssue[] = [];

@@ -8,10 +8,10 @@
  */
 import { buildDeps } from '../src/composition/build-deps.ts';
 import { loadConfig } from '../src/composition/config.ts';
+import { resolveDataHome } from '../src/composition/data-home.ts';
 import { parseRunId } from '../src/domain/run-id.ts';
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { createDraftApply } from '../src/use-cases/draft-apply.ts';
-import { resolveDataHome } from '../src/composition/data-home.ts';
 
 process.chdir(resolveDataHome(process.env, process.cwd()));
 
@@ -46,6 +46,9 @@ try {
     console.log(JSON.stringify(result.ok ? { ok: true, ...result.value } : { ok: false, error: result.error }));
   } else if (result.ok) {
     console.log(`draft-apply: draft ${result.value.mode} (${result.value.draftId})`);
+    if (result.value.subjectIgnored === true) {
+      console.error('  ! --subject ignored: create-reply-draft inherits RE: from the message being replied to; re-run with an existing draft (update) for the subject to apply');
+    }
   } else {
     console.error(`draft-apply: ${JSON.stringify(result.error)}`);
   }

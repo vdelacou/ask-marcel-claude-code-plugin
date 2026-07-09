@@ -144,7 +144,11 @@ const definedFile = (file: FileToWrite | undefined): file is FileToWrite => file
 const definedBinary = (binary: BinaryToWrite | undefined): binary is BinaryToWrite => binary !== undefined;
 
 const convertMessage = async (deps: Deps, message: ThreadMessage, order: number): Promise<Converted> => {
-  const bodyPath = `messages/${pad(order)}-${message.id}.md`;
+  // The body file lives under the same deep bundle path as the capped directory segment; a raw
+  // ~200-char Graph message id as the filename pushes the whole path past Windows' 260-char
+  // MAX_PATH (ENAMETOOLONG, #1). emailIdSegment caps + hashes it exactly as it does the dir
+  // segment, so the manifest still carries the real id (messageId) while the on-disk path stays short.
+  const bodyPath = `messages/${pad(order)}-${emailIdSegment(message.id)}.md`;
   const markdown = readMarkdown(await deps.office.execute('convert-mail-to-markdown', { messageId: message.id, inlineImages: 'false' }));
   const listed = await listAttachments(deps, message);
   const rendered = await Promise.all(listed.attachments.map((meta, index) => convertAttachment(deps, message.id, order, meta, index)));

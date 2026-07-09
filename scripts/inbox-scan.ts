@@ -39,10 +39,11 @@ try {
   if (Bun.argv.includes('--json')) {
     console.log(JSON.stringify(result.ok ? { ok: true, ...result.value } : { ok: false, error: result.error }));
   } else if (result.ok) {
-    const { runId, kept, dropped } = result.value;
+    const { runId, kept, dropped, capTruncated } = result.value;
     console.log(`inbox-scan: ${runId} - ${kept.length} kept, ${dropped.length} dropped (scope: ${scope})`);
     for (const message of kept) console.log(`  + [${message.id.slice(0, 8)}…] ${message.fromName} - ${message.subject}`);
     for (const drop of dropped) console.log(`  - ${drop.from} - ${drop.subject} (${drop.reason})`);
+    if (capTruncated) console.log(`  ! cap truncated at ${cap}: the page was full, so older mail exists beyond it — raise --cap or rerun --scope all to surface it`);
   } else {
     console.error(`inbox-scan: ${JSON.stringify(result.error)}`);
   }

@@ -43,6 +43,11 @@ type Deps = {
 const listParams = (options: CorpusOptions): Record<string, string> => ({
   filter: `from/emailAddress/address eq '${options.me.email}'`,
   top: String(options.fetchTop),
+  // Graph does not guarantee a default sort; without $orderby the page returned for $top is
+  // arbitrary (in practice ascending), so the "last N substantive" corpus became the OLDEST N
+  // (#2: 33 messages all from Jan 2026, none recent). receivedDateTime is an indexed property,
+  // so it composes with the from: filter and ranks the newest sent mail first.
+  orderby: 'receivedDateTime desc',
   select: 'id,subject,toRecipients,ccRecipients,receivedDateTime,isDraft',
 });
 

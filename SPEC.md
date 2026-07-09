@@ -154,7 +154,7 @@ per email:
 per run:
   init → context_loaded → …emails… → jargon_drained → user_md_reviewed → reindexed → wrapped
 ```
-`context_loaded` requires user.md + jargon read (design principle 6); `wrapped` is unreachable while any email queue is non-empty. Resume-safe: re-running `inbox-zero` picks up mid-run state instead of restarting. Pre-research runs carry `mode: pre-research` and may not advance any email past `researched`; the interactive resume lifts that restriction.
+`context_loaded` requires user.md + jargon read (design principle 6); `wrapped` is unreachable while any email queue is non-empty. Resume-safe: re-running `inbox-zero` picks up mid-run state instead of restarting. Pre-research runs carry `mode: pre-research` and may not advance any email past `researched`; the interactive resume lifts that restriction. Gate 1 is correctable: `approved → skipped` and `skipped → triaged` are valid rewinds (a wrong triage verdict is fixable through `state.ts` alone, no `state.json` hand-edit); `skipped` still cannot jump the gates, and only `done` is a dead end.
 
 ---
 

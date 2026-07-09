@@ -2,6 +2,34 @@ export type KbFile = { readonly path: string; readonly content: string };
 
 export const KB_ROOT = 'data/kb';
 
+// Bun.Glob returns OS-native separators: forward slashes on POSIX, backslashes on
+// Windows (verified). Every path operation on a listed KB file must therefore split
+// on BOTH separators — a bare `endsWith('/index.md')` or `lastIndexOf('/')` silently
+// misclassifies `data\kb\people\index.md` on Windows, which is how index.md ended up
+// self-listed (issue #6) and flagged as no-frontmatter (issue #5), and how every
+// generated link pointed at a full backslash path instead of a slug.
+const basenameOf = (path: string): string => {
+  const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return slash === -1 ? path : path.slice(slash + 1);
+};
+
+/** Last path segment, OS-separator-agnostic — `data\kb\people\marc.md` -> `marc.md`. */
+export const kbBasename = basenameOf;
+
+/** The slug a concept page is keyed by: basename minus the `.md` suffix. */
+export const kbSlugOf = (path: string): string => {
+  const base = basenameOf(path);
+  return base.endsWith('.md') ? base.slice(0, -3) : base;
+};
+
+// index.md (folder root) and log.md (run log) are reserved / generated files, not
+// concept pages — they carry no OKF frontmatter and must be excluded from both the
+// generated page listing and the lint pass. Separator-agnostic so it holds on Windows.
+export const isReservedKbFile = (path: string): boolean => {
+  const base = basenameOf(path);
+  return base === 'index.md' || base === 'log.md';
+};
+
 export type KbFolder = { readonly name: string; readonly title: string; readonly blurb: string };
 
 export const KB_FOLDERS: ReadonlyArray<KbFolder> = [

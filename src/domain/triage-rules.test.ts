@@ -6,6 +6,7 @@ import type { InboxMessage } from './triage-rules.ts';
 const message = (overrides: Partial<InboxMessage>): InboxMessage => ({
   id: 'm1',
   conversationId: 'c1',
+  internetMessageId: '',
   subject: 'Budget question',
   fromName: 'Jane Boss',
   fromAddress: 'jane@internal-corp.com',

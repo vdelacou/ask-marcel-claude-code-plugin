@@ -94,6 +94,7 @@ describe('graph envelopes', () => {
             {
               id: 'm1',
               conversationId: 'c1',
+              internetMessageId: '<m1@internal-corp.com>',
               subject: 'Budget',
               from: { emailAddress: { name: 'Jane Boss', address: 'Jane@Internal-Corp.com' } },
               receivedDateTime: '2026-07-04T08:00:00Z',
@@ -111,6 +112,7 @@ describe('graph envelopes', () => {
       {
         id: 'm1',
         conversationId: 'c1',
+        internetMessageId: '<m1@internal-corp.com>',
         subject: 'Budget',
         fromName: 'Jane Boss',
         fromAddress: 'jane@internal-corp.com',
@@ -133,6 +135,7 @@ describe('graph envelopes', () => {
       {
         id: 'm3',
         conversationId: 'c3',
+        internetMessageId: '',
         subject: '(no subject)',
         fromName: 'bare@x.com',
         fromAddress: 'bare@x.com',

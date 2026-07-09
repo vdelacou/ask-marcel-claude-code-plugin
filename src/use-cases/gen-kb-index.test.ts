@@ -54,6 +54,21 @@ describe('gen-kb-index', () => {
     expect(logger.calls).toEqual([{ level: 'info', event: 'kb-index-regenerated', meta: { folders: KB_FOLDERS.length } }]);
   });
 
+  test('excludes the folder index on Windows backslash paths and slugs links correctly (Bun.Glob yields \\)', async () => {
+    const { gen, written } = setup(
+      { 'data/kb/people/*.md': ['data\\kb\\people\\index.md', 'data\\kb\\people\\marc.md', 'data\\kb\\people\\jane.md'] },
+      { 'data\\kb\\people\\marc.md': person('Marc Dupont'), 'data\\kb\\people\\jane.md': person('Jane Boss') }
+    );
+
+    const result = await gen();
+
+    if (!result.ok) throw new Error('expected ok');
+    // index.md is excluded despite backslash separators, and links use the bare slug (not the full path)
+    expect(written.find((w) => w.path === 'data/kb/people/index.md')?.content).toBe(
+      ['# People', '', '- [Jane Boss](jane.md) - a person', '- [Marc Dupont](marc.md) - a person', ''].join('\n')
+    );
+  });
+
   test('a listing, read, or write failure each surfaces as a typed error', async () => {
     expect(await setup({}, {}, { failList: true }).gen()).toEqual({ ok: false, error: { kind: 'list-failed', message: 'scan crashed' } });
 

@@ -130,7 +130,7 @@ describe('extract-voice-corpus', () => {
 
     expect(officeLog[0]).toEqual({
       command: 'list-mail-messages',
-      params: { filter: "from/emailAddress/address eq 'me@internal-corp.com'", top: '100', select: 'id,subject,toRecipients,ccRecipients,receivedDateTime,isDraft' },
+      params: { filter: "from/emailAddress/address eq 'me@internal-corp.com'", top: '100', orderby: 'receivedDateTime desc', select: 'id,subject,toRecipients,ccRecipients,receivedDateTime,isDraft' },
     });
   });
 

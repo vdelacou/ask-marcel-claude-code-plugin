@@ -510,6 +510,26 @@ describe('fetch-email-bundle', () => {
     expect(written.find((w) => w.path === `${BASE}/sharepoint/01-01-年度报告-docx.md`)?.content).toBe('doc i1');
   });
 
+  test('a very long Graph message id is capped in the body filename so the bundle path stays under MAX_PATH (#1)', async () => {
+    // A real immutable Graph id runs ~150-200 chars; used raw as the messages/01-<id>.md filename it
+    // pushes the deep bundle path past Windows' 260-char limit. emailIdSegment caps it (32 + hash).
+    const longId = `AAMkAGZm${'A'.repeat(180)}AAACjsAAA=`;
+    const thread = [messageOf(longId, '2026-07-01T00:00:00Z', false)];
+    const { fetchBundle, written } = setup(threadData(thread), { [longId]: 'body' });
+
+    const result = await fetchBundle(REQUEST);
+
+    if (!result.ok) throw new Error('expected ok');
+    // the on-disk path segment is capped (<= 32 chars + '-<hash>'), never the raw ~190-char id
+    const bodyFile = written.find((w) => w.path.includes('/messages/01-'));
+    if (bodyFile === undefined) throw new Error('body file not written');
+    const segment = bodyFile.path.slice(bodyFile.path.lastIndexOf('/01-') + 4, -3);
+    expect(segment.length).toBeLessThanOrEqual(70); // 32-char cap + '-' + fnv hash (~6-7 chars base36)
+    // the manifest still records the full raw id for reference
+    expect(manifestOf(written).messages[0]?.['messageId']).toBe(longId);
+    expect(manifestOf(written).messages[0]?.['path']).toBe(`messages/01-${segment}.md`);
+  });
+
   test('messages sharing a timestamp keep their original thread order', async () => {
     const thread = [messageOf('first', '2026-07-01T00:00:00Z', false), messageOf('second', '2026-07-01T00:00:00Z', false)];
     const { fetchBundle, written } = setup(threadData(thread), { first: 'a', second: 'b' });

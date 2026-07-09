@@ -8,7 +8,7 @@
       "name": "ask-marcel",
       "source": "./",
       "description": "Inbox-zero reply plugin (ask-marcel v2): triages the Outlook inbox, researches each email that needs an answer, drafts threaded replies in your voice, and grows an OKF knowledge base. Read-mostly - the only Microsoft writes are unsent drafts.",
-      "version": "0.1.1"
+      "version": "0.2.0"
     }
   ]
 }

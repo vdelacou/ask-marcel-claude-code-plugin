@@ -21,7 +21,7 @@ export type DraftApplyError =
   | { readonly kind: 'draft-failed'; readonly message: string }
   | { readonly kind: 'state-store-failed'; readonly message: string };
 
-export type DraftApplySummary = { readonly mode: 'created' | 'updated'; readonly draftId: string };
+export type DraftApplySummary = { readonly mode: 'created' | 'updated'; readonly draftId: string; readonly subjectIgnored?: true };
 
 export type DraftApply = (request: DraftApplyRequest) => Promise<Result<DraftApplySummary, DraftApplyError>>;
 
@@ -60,10 +60,15 @@ export const createDraftApply =
     if (!existing.ok) return err(existing.error);
     const applied = existing.value === undefined ? await createDraft(deps, request) : await updateDraft(deps, existing.value, request);
     if (!applied.ok) return err(applied.error);
+    // create-reply-draft inherits the recipients + RE: subject + quoted history from the message being
+    // replied to; --subject only takes effect on update. A non-empty subject on the create path was
+    // silently dropped (#8): flag it so the agent knows its subject did not apply to this draft.
+    const subjectIgnored = applied.value.mode === 'created' && request.subject !== '' ? (true as const) : undefined;
+    if (subjectIgnored === true) deps.logger.warn('subject-ignored-on-create', { emailId: request.emailId, subject: request.subject });
     // The gate proved the from-state, so user_approved -> draft_created is a valid transition by construction.
     const nextState: RunState = { ...loaded.value, [request.emailId]: 'draft_created' };
     const saved = await deps.stateStore.save(request.runId, nextState);
     if (!saved.ok) return err({ kind: 'state-store-failed', message: saved.error.message });
     deps.logger.info('draft-applied', { emailId: request.emailId, mode: applied.value.mode });
-    return ok(applied.value);
+    return ok({ ...applied.value, ...(subjectIgnored !== undefined ? { subjectIgnored } : {}) });
   };

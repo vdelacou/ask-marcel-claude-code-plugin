@@ -1,6 +1,7 @@
 export type InboxMessage = {
   readonly id: string;
   readonly conversationId: string;
+  readonly internetMessageId: string;
   readonly subject: string;
   readonly fromName: string;
   readonly fromAddress: string;
