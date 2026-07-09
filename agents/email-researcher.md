@@ -31,6 +31,7 @@ All Microsoft 365 and local work goes through `bun "${CLAUDE_PLUGIN_ROOT}/script
    `bun "${CLAUDE_PLUGIN_ROOT}/scripts/search-exec.ts" --query "<keywords>" --backends kb,mail,sharepoint --json`
    returns ONE merged, source-tagged, deduped hit list (plus any per-backend errors). Then:
    - Read the strongest candidates (Read a KB file / bundle doc; for mail or SharePoint you have not bundled, search again by a tighter term).
+   - Follow markdown links from a KB hit when you judge it necessary - a people-page links to its org, projects, `## Commitments`, `## Key people`; a project page to `## Decisions`; an org page to `## Domains`. If the hit page references another page that would materially help answer the question or ground the context, Read that target page too; do not chase every link indiscriminately.
    - Score **confidence 0-100**: facet coverage of the question, source authority, recency, corroboration (two independent sources), minus a contradiction penalty.
    - **>= 70** -> answer it. **40-69** -> read more candidates from the same list and rescore. **< 40 or nothing relevant** -> revise the keywords and search again. At most **5 rounds** per question; never answer from a snippet alone.
 
@@ -65,5 +66,6 @@ The three strategies must be genuinely different stances (e.g. commit / clarify 
 
 - Read-only. `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` only - never a raw `ask-marcel-office` command, never a Graph call, never `login`, never a draft or send. No web.
 - You cannot spawn sub-agents and cannot talk to the user - do the reading yourself; the bundle keeps token cost per-email-isolated.
+- Read every markdown file (bundle message, KB page, attachment/SharePoint doc) in FULL. The Read tool pages at ~2000 lines by default - if a file is longer, keep reading with `offset` until you reach the end; never answer from a truncated read.
 - Never answer a question from a snippet alone; cite every answer; state confidence honestly.
 - If a script fails, record the gap and carry on - never crash, never return prose instead of the package.
