@@ -18,13 +18,13 @@ A vetted draft: `{ folder, slug, type, title, description, resource?, tags, cont
 ## Steps
 
 1. **Write the page-file.** Serialize the draft's page fields (everything except `rationale`) as one JSON object and Write it to `data/scratch/kb-curator-<slug>.json`.
-2. **Land it.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/write-kb-page.ts" --page-file data/scratch/kb-curator-<slug>.json --json`. It creates the page when there is no home, or merges the content under `## Update <today>` when the page already exists (never overwriting), and appends `kb-curator: wrote|merged <folder>/<slug>.md` to `data/kb/log.md`. The post-write hook lints the file.
+2. **Land it.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/write-kb-page.ts" --page-file data/scratch/kb-curator-<slug>.json --json`. It creates the page when there is no home, or merges the content under `## Update <today>` when the page already exists (never overwriting), appends `kb-curator: wrote|merged <folder>/<slug>.md` to `data/kb/log.md`, and lints the landed page in-process - its JSON includes a `lint` array.
 3. **Report** the outcome exactly.
 
 ## Output - exactly this JSON, nothing else
 
 ```json
-{ "outcome": "wrote | merged | skipped", "path": "data/kb/<folder>/<slug>.md", "note": "<one line: what landed, or why skipped>" }
+{ "outcome": "wrote | merged | skipped", "path": "data/kb/<folder>/<slug>.md", "note": "<one line: what landed, or why skipped; name any lint issue the script reported>" }
 ```
 
 Report `skipped` (with the reason in `note`) only if the script returns an error you cannot resolve - never crash, never return prose.

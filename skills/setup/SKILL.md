@@ -11,6 +11,8 @@ v0.1 note: you can run this from any working directory - the entry scripts resol
 
 ## Steps
 
+0. **Always-loaded context (principle 6).** If `data/profile/user.md` or `data/kb/jargon/abbreviations.md` exists, confirm it is in context (the SessionStart hook prints them; Read them if not). On a first run neither exists yet - that is what this skill fixes.
+
 1. **Doctor first.** Run `bun "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.ts" --json` and parse the envelope (`{ok, ready, checks[]}`). If `bun` itself is missing the script cannot run - fall back to the fix table below, starting with bun.
 
 2. **Present the board.** Show every check as a table (id, status, detail). Include the green ones - no silent gaps. If `ready: true`, say so and stop unless the user asked for something specific.

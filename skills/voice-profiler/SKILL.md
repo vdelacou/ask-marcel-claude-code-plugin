@@ -11,6 +11,8 @@ v0.1 note: any working directory is fine - `data/` lives in the folder you launc
 
 ## Steps
 
+0. **Always-loaded context (principle 6).** Confirm `data/profile/user.md` + `data/kb/jargon/abbreviations.md` are in context (the SessionStart hook prints them; Read them if not).
+
 1. **Extract the corpus (deterministic).** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/voice-extract.ts" --job-title "<title-prefix>" --json` - last 50 substantive own-bodies from ALL folders (from:me), quoted chains and signatures stripped, bucketed. Report the bucket counts; if a bucket is empty (e.g. upward with no directory manager), say so - do not invent its voice.
 
 2. **Analyze per bucket (judgment).** Read the corpus messages bucket by bucket and extract, citing real message evidence: greeting forms and when each is used; sign-off forms; median length and structure (ask-first? bullets? bold labels?); directness and hedging; language choice per recipient (EN default? FR with whom?); recurring phrases. Pick 2-3 SHORT verbatim excerpts per bucket as examples.

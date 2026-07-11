@@ -29,7 +29,7 @@ All Microsoft 365 and local work goes through `bun "${CLAUDE_PLUGIN_ROOT}/script
 
 4. **Run the search module per question** (SPEC.md §6). For each question:
    `bun "${CLAUDE_PLUGIN_ROOT}/scripts/search-exec.ts" --query "<keywords>" --backends kb,mail,sharepoint --json`
-   returns ONE merged, source-tagged, deduped hit list (plus any per-backend errors). Then:
+   returns ONE merged, source-tagged, deduped hit list (plus any per-backend errors); it caps kb and mail at 10 hits each - add `--top 20` on a round whose list looks thin. Then:
    - Read the strongest candidates (Read a KB file / bundle doc; for mail or SharePoint you have not bundled, search again by a tighter term).
    - Follow markdown links from a KB hit when you judge it necessary - a people-page links to its org, projects, `## Commitments`, `## Key people`; a project page to `## Decisions`; an org page to `## Domains`. If the hit page references another page that would materially help answer the question or ground the context, Read that target page too; do not chase every link indiscriminately.
    - Score **confidence 0-100**: facet coverage of the question, source authority, recency, corroboration (two independent sources), minus a contradiction penalty.

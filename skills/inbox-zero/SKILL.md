@@ -9,9 +9,12 @@ Deterministic where possible: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` do the 
 
 ## Phase 0-2 + Gate 1 - triage
 
+0. **Always-loaded context (principle 6).** The SessionStart hook prints `data/profile/user.md` + `data/kb/jargon/abbreviations.md`. Confirm both are in your context; if not (or stale), Read them now. Nothing else starts before this.
+
 1. **Doctor gate.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/doctor.ts" --json`. If a check other than `voice-profile` fails, route to the setup skill first (a red voice-profile blocks drafting, not triage).
 
-2. **Scan (Phase 1).** Propose the scope (default unread; `--scope all` on request), then `bun "${CLAUDE_PLUGIN_ROOT}/scripts/inbox-scan.ts" --scope <s> --cap <config> --json`. Parse `{runId, kept, dropped, capTruncated}`; report the dropped list with reasons (rule drops are never silent). If `capTruncated` is true, say so explicitly - the page was full and older mail exists beyond `--cap`; raise `--cap` or rerun `--scope all` to surface it (cap truncation is never silent either). If `kept` is empty: say so, done.
+2. **Scan (Phase 1).** Propose the scope (default unread; `--scope all` on request; `--scope since-watermark` for "only what arrived since the last wrapped run" - it falls back to unread with a note when no watermark exists yet), then `bun "${CLAUDE_PLUGIN_ROOT}/scripts/inbox-scan.ts" --scope <s> --json` (`--cap` defaults from config: 25). Parse `{runId, kept, dropped, capTruncated, swept}`; report the dropped list with reasons (rule drops are never silent). If `capTruncated` is true, say so explicitly - the page was full and older mail exists beyond `--cap`; raise `--cap` or rerun `--scope all` to surface it (cap truncation is never silent either). The scan also sweeps scratch runs older than 7 days - mention `swept` when non-zero. If `kept` is empty: say so, done.
+   Then open the run's email window: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/state.ts" <runId> advance-run context_loaded` - the state machine refuses every email advance while the run is still `init` (step 0 not done means this is where you find out).
 
 3. **Triage fan-out (Phase 2), by conversation.** Group the kept emails by `conversationId` (every candidate carries it) so each thread is triaged once, not per message. Per thread launch ONE `triage-scout` agent (batches of 4) on its **latest** message (the max `receivedDateTime` in the group), with that candidate block + the user identity line; the scout judges whether the THREAD needs a reply from the user. Parse each verdict leniently: a scout may wrap its JSON in a ```json fence or add a stray key - strip any fence and ignore unknown keys before reading the five you need, that is not garbage. Only genuinely unparseable output is garbage: retry it once, then record `needs_reply: true, urgency: low, reason: "scout failed - defaulting to keep"`. For each thread advance its latest (representative) email `scanned -> triaged`, and advance every other email in the thread `scanned -> triaged -> skipped` (one reply covers the whole thread).
 
@@ -25,7 +28,7 @@ Deterministic where possible: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` do the 
 
 For each `researched` email, in urgency order:
 
-6. **Present the package.** Full context, what was found (with confidence + citations), and what is missing.
+6. **Present the package.** Full context, what was found (with confidence + citations), and what is missing. Cite links clickable (SharePoint links already carry `?web=1`). For a question the researcher left below confidence 70, you may escalate ONCE here in the main thread: `qmd query "<the question>" -c ask-marcel-kb -n 5` (semantic + rerank - safe serially, forbidden to parallel agents) and fold what it adds into the context.
 
 7. **Contradiction gate.** For every contradiction the researcher flagged (mail/doc vs KB or user.md), AskUserQuestion with both versions. The confirmed truth is landed immediately via a `kb-curator` agent (vetted draft -> `bun "${CLAUDE_PLUGIN_ROOT}/scripts/write-kb-page.ts"`), the loser corrected - never left ambiguous.
 
@@ -41,28 +44,31 @@ For each `researched` email, in urgency order:
 
 13. **Create the draft.** Write the approved HTML body to a scratch file, then `bun "${CLAUDE_PLUGIN_ROOT}/scripts/draft-apply.ts" --run-id <runId> --email-id <id> --conversation-id <cid> --reply-to <messageId> --subject "<s>" --body-file <path> --json`. It refuses unless the email is `user_approved` (the code approval gate), searches Drafts by conversation, then creates a threaded reply-all draft or patches the existing one - never sends, never duplicates. It advances `user_approved -> draft_created` itself. `--reply-to` takes the **Graph message id** (the `id` field on a scan candidate, not the RFC-822 `internetMessageId` header - the scan now carries both, but `create-reply-draft` keys off the Graph id). On the **create** path the subject is inherited from the message being replied to (`RE:` auto-prefixed); `--subject` only applies on the **update** path, so a non-empty `--subject` on create is flagged `subject-ignored-on-create` rather than applied silently.
 
-14. **Capture.** Drain this email's KB queue: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-queue.ts" drain --run-id <runId> --json`, and land each fact candidate via a `kb-curator` agent. Cite the source email as a **clickable markdown link** - `[Source email, <sender> <date>](<webLink>)` from the candidate's `webLink` - so the user can open and compare it; fall back to a plain `email <runId> (<emailId>)` reference only when `webLink` is absent. Advance `draft_created -> kb_captured -> done`.
+14. **Capture.** Drain this email's facts - and ONLY this email's: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-queue.ts" drain --run-id <runId> --email-id <emailId> --json`. The drain CONSUMES what it returns (the queue file is rewritten without the batch), so hold the candidates until each is landed via a `kb-curator` agent - a re-drain will not repeat them. Cite the source email as a **clickable markdown link** - `[Source email, <sender> <date>](<webLink>)` from the candidate's `webLink` - so the user can open and compare it; fall back to a plain `email <runId> (<emailId>)` reference only when `webLink` is absent. Advance `draft_created -> kb_captured -> done`.
 
-## Phase 5 - wrap-up
+## Phase 5 - wrap-up (gated: the run machine refuses to wrap while an email is mid-pipeline)
 
-15. **Jargon drain.** Collect the run's queued jargon candidates; AskUserQuestion in one batch; accepted terms land in `data/kb/jargon/abbreviations.md` via `kb-curator`.
+15. **Jargon drain.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-queue.ts" drain --run-id <runId> --kind jargon --json` (consuming, like every drain); AskUserQuestion in one batch; accepted terms land in `data/kb/jargon/abbreviations.md` via `kb-curator`. Then `bun "${CLAUDE_PLUGIN_ROOT}/scripts/state.ts" <runId> advance-run jargon_drained` - it refuses while any email is neither `done` nor `skipped`.
 
-16. **user.md curation.** Add what this session taught about the user, compress, remove stale entries (hard cap ~150 lines); show the diff in the report.
+16. **user.md curation.** Add what this session taught about the user, compress, remove stale entries (hard cap ~150 lines); show the diff in the report. Then `advance-run user_md_reviewed`.
 
-17. **Reindex + report.** One `qmd update && qmd embed` for the whole run. Report: drafted / updated / skipped(user/rule) / blocked(+why), the draft edit-or-reject rate (voice-drift indicator), and a Coverage block naming any source that errored. Advance inbox watermark; sweep scratch older than 7 days.
+17. **Reindex.** One `qmd update && qmd embed` for the whole run. Then `advance-run reindexed`.
+
+18. **Report + watermark + wrap.** Write the permanent run report: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/run-report.ts" --run-id <runId> --stats '<json>' --json` with `{drafted, updated, skippedByUser, skippedByRule, blocked[], editedOrRejected, coverage[], notes}` - it lands `data/reports/<runId>.md` and computes the rolling edit/reject drift rate (an alert above 40% over the last 10 drafts means: recommend the voice-profiler skill). Show the drift line and the Coverage block in chat. Advance the inbox watermark: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/watermark.ts" advance --run-id <runId>`. Close the run: `advance-run wrapped` - it refuses while the KB queue still holds undrained candidates (no fact is ever silently lost).
 
 ## Pre-research mode (unattended, scheduled)
 
 Invoked headless (e.g. weekday mornings) so the interactive session starts with everything already researched. Runs Phases 0-3 ONLY:
 
-- Phases 0-2 as above (grouped by conversation), but **Gate 1 is deferred**: with no user to deselect, auto-advance every needs-reply thread's representative email `triaged -> approved` and research them all speculatively - the `--cap` bounds the cost, and research for a thread the user later deselects is simply discarded.
+- Phases 0-2 as above (grouped by conversation), but scan with `--mode pre-research --scope since-watermark` - the mode is stamped into the run's state machine, which then physically caps every email at `researched` and the run at `context_loaded`. **Gate 1 is deferred**: with no user to deselect, auto-advance every needs-reply thread's representative email `triaged -> approved` and research them all speculatively - the `--cap` bounds the cost, and research for a thread the user later deselects is simply discarded.
 - Phase 3 as above, advancing `approved -> researched` and writing each package to scratch.
-- **No drafting, by construction:** `user_approved` cannot exist in an unattended run, so Phase 4 is unreachable - the packages just wait. Contradictions and jargon stay in each package / the KB queue; `user.md` is never modified unattended; the only KB writes are queued candidates.
-- Stop at `researched`. The next interactive `inbox-zero` detects the pre-researched run, resumes the same run-id, drains any buffered items, shows the triage table at Gate 1 (deselecting discards that email's package), then goes straight into Phase 4 - the slow work is already done.
+- **No drafting, by construction:** the state machine refuses any advance past `researched` in this mode, `user_approved` therefore cannot exist, and `draft-apply` additionally refuses pre-research runs outright. Contradictions and jargon stay in each package / the KB queue; `user.md` is never modified unattended; the only KB writes are queued candidates.
+- Stop at `researched`. The next interactive `inbox-zero` detects the pre-researched run (`state.ts <runId> show` - `mode: pre-research`), lifts the cap with `bun "${CLAUDE_PLUGIN_ROOT}/scripts/state.ts" <runId> resume`, drains any buffered items, shows the triage table at Gate 1 (deselecting discards that email's package), then goes straight into Phase 4 - the slow work is already done.
 
 ## Hard rules
 
 - Never advance state except through `${CLAUDE_PLUGIN_ROOT}/scripts/state.ts`, one email per call, ids pasted literally - never hand-edit `state.json`, never batch advances through an inline `bun -e`/argv script. Respect the domain's refusals.
+- The run itself is a state machine too: `init -> context_loaded -> jargon_drained -> user_md_reviewed -> reindexed -> wrapped` via `state.ts <runId> advance-run <phase>`. Emails only move inside `context_loaded`; the wrap gates are enforced, not suggested.
 - Never send mail, mark read, move, archive, or delete - the only Microsoft write is an unsent draft, and only after the user's approval gate (step 12).
 - All Microsoft 365 access is `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` (the Office library) - never a raw `ask-marcel-office` command, never a Graph call (SPEC §15.1).
 - Every drop, skip, failure, low-confidence answer, and fallback is named in the report - no silent gaps.

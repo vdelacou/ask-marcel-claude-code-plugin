@@ -7,15 +7,17 @@ description: Keep the local OKF knowledge base healthy - lint it for conformance
 
 Two phases: Phase 1 is deterministic and safe to auto-apply; Phase 2 is a plan you approve before anything changes. All KB writes go through scripts / kb-curator - never hand-edit `data/kb/**`. Any working directory is fine - the scripts run via `${CLAUDE_PLUGIN_ROOT}`; `data/` lives in the folder you launch Claude Code from (`ASK_MARCEL_HOME` overrides).
 
+0. **Always-loaded context (principle 6).** Confirm `data/profile/user.md` + `data/kb/jargon/abbreviations.md` are in context (the SessionStart hook prints them; Read them if not).
+
 ## Phase 1 - lint + reindex (deterministic, auto-apply)
 
-1. **Lint.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-lint.ts" --json`. Parse the issues (missing frontmatter, missing required fields, duplicate slugs). Report them grouped by kind. Read-only - linting never edits.
+1. **Lint.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-lint.ts" --json`. Parse the issues: missing frontmatter, missing required fields, duplicate slugs, **broken internal links** (a `.md` link whose target does not exist), **stale pages** (timestamp older than 180 days), and **orphans** (no other concept page links to it - normal on a young KB, review-worthy on a mature one; jargon pages are exempt). Report them grouped by kind. Read-only - linting never edits.
 
 2. **Regenerate indexes.** `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-index-gen.ts" --json`. This rewrites every folder's `index.md` from its concept pages (derived data). Report how many were regenerated.
 
 ## Phase 2 - curation plan (LLM, plan-then-apply)
 
-3. **Draft a plan** from the lint issues plus a read of the KB structure: merge duplicate-slug pages into one, split an oversized page into a new category, move a mis-filed page, rewrite a stale or empty summary. Write it as a short plan (one line per action, each with its rationale).
+3. **Draft a plan** from the lint issues plus a read of the KB structure: merge duplicate-slug pages into one, split an oversized page into a new category, move a mis-filed page, rewrite a stale or empty summary, repoint or remove a broken link, and for each orphan decide link-it / merge-it / leave-it (young page). Write it as a short plan (one line per action, each with its rationale).
 
 4. **Gate the plan.**
    - **Interactive:** show the plan; AskUserQuestion per action (apply / skip / edit). Execute each approved action through a `kb-curator` agent (so the log, lint, and index stay consistent) - never by editing `data/kb/**` directly.
