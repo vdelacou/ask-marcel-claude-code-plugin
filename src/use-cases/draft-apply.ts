@@ -1,4 +1,4 @@
-import type { RunState } from '../domain/email-state.ts';
+import type { RunFile } from '../domain/email-state.ts';
 import { extractDraftId, extractFirstMessageId } from '../domain/mail-draft.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
@@ -55,7 +55,9 @@ export const createDraftApply =
     if (!loaded.ok) return err({ kind: 'state-store-failed', message: loaded.error.message });
     // The code approval gate (SPEC §15.1 consequence i, replacing the Bash draft-gate hook): no draft is
     // created unless the user approved this exact email. Only user_approved advances to draft_created.
-    if (loaded.value[request.emailId] !== 'user_approved') return err({ kind: 'not-approved', message: `email ${request.emailId} is not user_approved` });
+    // Defense in depth on top of the state-machine cap: a pre-research run can never draft.
+    if (loaded.value.mode === 'pre-research') return err({ kind: 'not-approved', message: 'this is a pre-research run - resume it interactively before drafting' });
+    if (loaded.value.emails[request.emailId] !== 'user_approved') return err({ kind: 'not-approved', message: `email ${request.emailId} is not user_approved` });
     const existing = await findExistingDraft(deps, request.conversationId);
     if (!existing.ok) return err(existing.error);
     const applied = existing.value === undefined ? await createDraft(deps, request) : await updateDraft(deps, existing.value, request);
@@ -66,7 +68,7 @@ export const createDraftApply =
     const subjectIgnored = applied.value.mode === 'created' && request.subject !== '' ? (true as const) : undefined;
     if (subjectIgnored === true) deps.logger.warn('subject-ignored-on-create', { emailId: request.emailId, subject: request.subject });
     // The gate proved the from-state, so user_approved -> draft_created is a valid transition by construction.
-    const nextState: RunState = { ...loaded.value, [request.emailId]: 'draft_created' };
+    const nextState: RunFile = { ...loaded.value, emails: { ...loaded.value.emails, [request.emailId]: 'draft_created' } };
     const saved = await deps.stateStore.save(request.runId, nextState);
     if (!saved.ok) return err({ kind: 'state-store-failed', message: saved.error.message });
     deps.logger.info('draft-applied', { emailId: request.emailId, mode: applied.value.mode });

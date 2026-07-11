@@ -19,7 +19,7 @@ const REQUEST: DraftApplyRequest = { runId: RUN_ID, emailId: 'msg-1', conversati
 
 type OfficeResp = Result<unknown, OfficeError>;
 
-type Overrides = { readonly drafts?: OfficeResp; readonly create?: OfficeResp; readonly update?: OfficeResp };
+type Overrides = { readonly drafts?: OfficeResp; readonly create?: OfficeResp; readonly update?: OfficeResp; readonly mode?: 'interactive' | 'pre-research' };
 
 const listing = (messages: ReadonlyArray<unknown>): OfficeResp => ok({ value: messages });
 const draftResource = (id: string): OfficeResp => ok({ id, isDraft: true });
@@ -33,7 +33,7 @@ type Setup = {
 };
 
 const setup = (emailState: EmailState, overrides: Overrides = {}): Setup => {
-  const stateStore = createStateStoreFake({ [RUN_ID]: { 'msg-1': emailState } });
+  const stateStore = createStateStoreFake({ [RUN_ID]: { mode: overrides.mode ?? 'interactive', phase: 'context_loaded', emails: { 'msg-1': emailState } } });
   const logger = createLoggerFake();
   // The office fake enforces the library's param contracts, so a wrong bodyContentType fails here.
   const office = createOfficeFake({
@@ -57,7 +57,7 @@ describe('draft-apply', () => {
       { command: 'list-mail-folder-messages', params: { mailFolderId: 'drafts', filter: "conversationId eq 'conv-1'", select: 'id,conversationId' } },
       { command: 'create-reply-draft', params: { replyToMessageId: 'msg-1', bodyContent: '<p>Reply</p>', bodyContentType: 'HTML' } },
     ]);
-    expect(stateStore.snapshot(RUN_ID)).toEqual({ 'msg-1': 'draft_created' });
+    expect(stateStore.snapshot(RUN_ID)?.emails).toEqual({ 'msg-1': 'draft_created' });
     expect(logger.calls).toEqual([
       { level: 'warn', event: 'subject-ignored-on-create', meta: { emailId: 'msg-1', subject: 'RE: Q3' } },
       { level: 'info', event: 'draft-applied', meta: { emailId: 'msg-1', mode: 'created' } },
@@ -84,7 +84,7 @@ describe('draft-apply', () => {
       command: 'update-mail-draft',
       params: { messageId: 'existing-draft-1', subject: 'RE: Q3', bodyContent: '<p>Reply</p>', bodyContentType: 'HTML' },
     });
-    expect(stateStore.snapshot(RUN_ID)).toEqual({ 'msg-1': 'draft_created' });
+    expect(stateStore.snapshot(RUN_ID)?.emails).toEqual({ 'msg-1': 'draft_created' });
   });
 
   test('an email that is not user_approved is refused with no draft touched and no state change', async () => {
@@ -96,7 +96,16 @@ describe('draft-apply', () => {
     expect(result).toEqual({ ok: false, error: { kind: 'not-approved', message: 'email msg-1 is not user_approved' } });
     // the gate fires before any Graph draft command is issued
     expect(office.calls).toEqual([]);
-    expect(stateStore.snapshot(RUN_ID)).toEqual({ 'msg-1': 'preflight_ok' });
+    expect(stateStore.snapshot(RUN_ID)?.emails).toEqual({ 'msg-1': 'preflight_ok' });
+  });
+
+  test('a pre-research run can never draft, even if an email somehow reads user_approved', async () => {
+    const { draftApply, office } = setup('user_approved', { mode: 'pre-research' });
+
+    const result = await draftApply(REQUEST);
+
+    expect(result).toEqual({ ok: false, error: { kind: 'not-approved', message: 'this is a pre-research run - resume it interactively before drafting' } });
+    expect(office.calls).toEqual([]);
   });
 
   test('a state that cannot be loaded fails as state-store-failed, before any draft is attempted', async () => {
@@ -119,7 +128,7 @@ describe('draft-apply', () => {
   test('a draft-command failure surfaces as draft-failed and never advances the state', async () => {
     const createFails = setup('user_approved', { create: commandFailed('mailbox quota exceeded') });
     expect(await createFails.draftApply(REQUEST)).toEqual({ ok: false, error: { kind: 'draft-failed', message: 'mailbox quota exceeded' } });
-    expect(createFails.stateStore.snapshot(RUN_ID)).toEqual({ 'msg-1': 'user_approved' });
+    expect(createFails.stateStore.snapshot(RUN_ID)?.emails).toEqual({ 'msg-1': 'user_approved' });
 
     const noId = setup('user_approved', { create: ok({ isDraft: true }) });
     expect(await noId.draftApply(REQUEST)).toEqual({ ok: false, error: { kind: 'draft-failed', message: 'create-reply-draft returned no draft id' } });
