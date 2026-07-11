@@ -85,4 +85,38 @@ describe('kb-queue-store', () => {
 
     expect(await createDrainKbQueue(store)(RUN_ID)).toEqual({ ok: true, value: [JARGON] });
   });
+
+  test('a drain consumes what it returns - the second drain of the same run is empty', async () => {
+    const store = createStore({ [PATH]: `${JSON.stringify(JARGON)}\n${JSON.stringify(FACT)}\n` });
+    const drain = createDrainKbQueue(store);
+
+    expect(await drain(RUN_ID)).toEqual({ ok: true, value: [JARGON, FACT] });
+    expect(await drain(RUN_ID)).toEqual({ ok: true, value: [] });
+    expect(store.snapshot(PATH)).toBe('');
+  });
+
+  test("draining one email's facts leaves the other email's facts and the jargon queued", async () => {
+    const OTHER: KbCandidate = { kind: 'fact', emailId: 'm2', folder: 'orgs', slug: 'acme', title: 'Acme', content: 'vendor', rationale: 'context' };
+    const store = createStore({ [PATH]: `${JSON.stringify(FACT)}\n${JSON.stringify(OTHER)}\n${JSON.stringify(JARGON)}\n` });
+    const drain = createDrainKbQueue(store);
+
+    expect(await drain(RUN_ID, { emailId: 'm1' })).toEqual({ ok: true, value: [FACT] });
+    expect(await drain(RUN_ID, { emailId: 'm1' })).toEqual({ ok: true, value: [] });
+    expect(store.snapshot(PATH)).toBe(`${JSON.stringify(OTHER)}\n${JSON.stringify(JARGON)}\n`);
+  });
+
+  test('the jargon wrap-up drain takes only jargon and leaves undrained facts alone', async () => {
+    const store = createStore({ [PATH]: `${JSON.stringify(FACT)}\n${JSON.stringify(JARGON)}\n` });
+
+    expect(await createDrainKbQueue(store)(RUN_ID, { kind: 'jargon' })).toEqual({ ok: true, value: [JARGON] });
+    expect(store.snapshot(PATH)).toBe(`${JSON.stringify(FACT)}\n`);
+  });
+
+  test('a failed queue rewrite fails the drain and leaves the queue file untouched', async () => {
+    const initial = `${JSON.stringify(JARGON)}\n`;
+    const store = createStore({ [PATH]: initial }, { failWrite: PATH });
+
+    expect(await createDrainKbQueue(store)(RUN_ID)).toEqual({ ok: false, error: { kind: 'write-failed', path: PATH, message: 'disk full' } });
+    expect(store.snapshot(PATH)).toBe(initial);
+  });
 });

@@ -1,12 +1,14 @@
 /*
  * Thin CLI entry:
  *   bun scripts/kb-queue.ts append --run-id <id> --candidate '<json>'
- *   bun scripts/kb-queue.ts drain  --run-id <id> [--json]
- * SPEC.md §8 KB queue: candidates (facts / jargon) discovered during research are queued per run,
- * drained in one batch to kb-curator at wrap-up. A `--candidate` is one KbCandidate JSON object.
- * Exit 1 on error or crash.
+ *   bun scripts/kb-queue.ts drain  --run-id <id> [--email-id <id>] [--kind fact|jargon] [--json]
+ * SPEC.md §8 KB queue: candidates (facts / jargon) discovered during research are queued per run.
+ * Draining is CONSUMING and filterable: Phase 4 drains one email's facts (--email-id), the
+ * wrap-up drains the jargon (--kind jargon); what a drain returns leaves the queue file.
+ * A `--candidate` is one KbCandidate JSON object. Exit 1 on error or crash.
  */
 import { parseQueue } from '../src/domain/kb-queue.ts';
+import type { DrainFilter } from '../src/domain/kb-queue.ts';
 import { parseRunId } from '../src/domain/run-id.ts';
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { buildDeps } from '../src/composition/build-deps.ts';
@@ -44,12 +46,22 @@ try {
     }
     console.log('kb-queue: candidate appended');
   } else if (command === 'drain') {
-    const drained = await createDrainKbQueue(deps)(runId.value);
+    // A drain CONSUMES what it returns (the queue file is rewritten without the batch), so
+    // hold the returned candidates until they are landed - a re-drain will not repeat them.
+    const kindRaw = flagValue('--kind');
+    const kind = kindRaw === 'fact' || kindRaw === 'jargon' ? kindRaw : undefined;
+    if (kindRaw !== '' && kind === undefined) {
+      console.error(`kb-queue: unknown --kind '${kindRaw}' (use fact|jargon)`);
+      process.exit(1);
+    }
+    const emailId = flagValue('--email-id');
+    const filter: DrainFilter = { ...(kind === undefined ? {} : { kind }), ...(emailId === '' ? {} : { emailId }) };
+    const drained = await createDrainKbQueue(deps)(runId.value, filter);
     if (!drained.ok) {
       console.error(`kb-queue: ${JSON.stringify(drained.error)}`);
       process.exit(1);
     }
-    console.log(Bun.argv.includes('--json') ? JSON.stringify({ ok: true, candidates: drained.value }) : `kb-queue: ${drained.value.length} candidate(s) queued`);
+    console.log(Bun.argv.includes('--json') ? JSON.stringify({ ok: true, candidates: drained.value }) : `kb-queue: drained ${drained.value.length} candidate(s)`);
   } else {
     console.error(`kb-queue: unknown command '${command ?? ''}' (use append|drain)`);
     process.exit(1);

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { appendToQueue, parseQueue, serializeCandidate } from './kb-queue.ts';
+import { appendToQueue, isQueueEmpty, matchesFilter, parseQueue, serializeCandidate, splitQueue } from './kb-queue.ts';
 import type { KbCandidate } from './kb-queue.ts';
 
 describe('kb-queue', () => {
@@ -72,5 +72,40 @@ describe('kb-queue', () => {
   test('a jargon candidate is dropped when its term is missing', () => {
     expect(parseQueue(JSON.stringify({ kind: 'jargon', guessedMeaning: 'x', context: 'y' }))).toEqual([]);
     expect(parseQueue(JSON.stringify({ kind: 'jargon', term: 'has-term' }))).toHaveLength(1);
+  });
+
+  const FACT_M1: KbCandidate = { kind: 'fact', emailId: 'm1', folder: 'people', slug: 'jane', title: 'Jane', content: 'VP', rationale: '' };
+  const FACT_M2: KbCandidate = { kind: 'fact', emailId: 'm2', folder: 'orgs', slug: 'acme', title: 'Acme', content: 'vendor', rationale: '' };
+  const JARGON_OKF: KbCandidate = { kind: 'jargon', term: 'OKF', guessedMeaning: 'Open Knowledge Format', context: 'kb' };
+  const QUEUE = `${serializeCandidate(FACT_M1)}\n${serializeCandidate(FACT_M2)}\n${serializeCandidate(JARGON_OKF)}\n`;
+
+  test('an emailId filter matches only that email - jargon has no emailId and never matches it', () => {
+    expect(matchesFilter(FACT_M1, { emailId: 'm1' })).toBe(true);
+    expect(matchesFilter(FACT_M2, { emailId: 'm1' })).toBe(false);
+    expect(matchesFilter(JARGON_OKF, { emailId: 'm1' })).toBe(false);
+    // a kind filter is orthogonal, and the empty filter matches everything
+    expect(matchesFilter(JARGON_OKF, { kind: 'jargon' })).toBe(true);
+    expect(matchesFilter(FACT_M1, { kind: 'jargon' })).toBe(false);
+    expect(matchesFilter(JARGON_OKF, {})).toBe(true);
+  });
+
+  test("splitQueue takes one email's facts out and leaves the rest byte-stable for the next drain", () => {
+    const { drained, remaining } = splitQueue(QUEUE, { emailId: 'm1' });
+
+    expect(drained).toEqual([FACT_M1]);
+    expect(remaining).toBe(`${serializeCandidate(FACT_M2)}\n${serializeCandidate(JARGON_OKF)}\n`);
+  });
+
+  test('splitQueue with no filter drains everything and drops malformed lines from the remainder', () => {
+    const { drained, remaining } = splitQueue(`garbage line\n${QUEUE}`, {});
+
+    expect(drained).toEqual([FACT_M1, FACT_M2, JARGON_OKF]);
+    expect(remaining).toBe('');
+  });
+
+  test('isQueueEmpty reflects parseable candidates, not raw bytes', () => {
+    expect(isQueueEmpty('')).toBe(true);
+    expect(isQueueEmpty('malformed only\n')).toBe(true);
+    expect(isQueueEmpty(QUEUE)).toBe(false);
   });
 });

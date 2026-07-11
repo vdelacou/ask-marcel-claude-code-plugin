@@ -62,3 +62,25 @@ export const parseQueue = (content: string): ReadonlyArray<KbCandidate> =>
 
 // Append one serialized candidate to the existing queue text (missing queue starts empty).
 export const appendToQueue = (existing: string, candidate: KbCandidate): string => `${existing}${serializeCandidate(candidate)}\n`;
+
+// What a drain takes out of the queue: everything (no filter), one email's facts, or one kind.
+// A drain is CONSUMING (SPEC §2 step 9 / §8): matching candidates leave the queue so the next
+// drain never re-lands them; only jargon has no emailId, so an emailId filter matches facts only.
+export type DrainFilter = { readonly kind?: KbCandidate['kind']; readonly emailId?: string };
+
+export const matchesFilter = (candidate: KbCandidate, filter: DrainFilter): boolean =>
+  (filter.kind === undefined || candidate.kind === filter.kind) && (filter.emailId === undefined || (candidate.kind === 'fact' && candidate.emailId === filter.emailId));
+
+export type QueueSplit = { readonly drained: ReadonlyArray<KbCandidate>; readonly remaining: string };
+
+// Malformed lines are dropped here too: a drain is the queue's one rewrite point, so garbage
+// never outlives the first drain that touches the file.
+export const splitQueue = (content: string, filter: DrainFilter): QueueSplit => {
+  const candidates = parseQueue(content);
+  const drained = candidates.filter((candidate) => matchesFilter(candidate, filter));
+  const kept = candidates.filter((candidate) => !matchesFilter(candidate, filter));
+  return { drained, remaining: kept.map((candidate) => `${serializeCandidate(candidate)}\n`).join('') };
+};
+
+/** True when the queue text holds no parseable candidate — the run-wrap gate reads this. */
+export const isQueueEmpty = (content: string): boolean => parseQueue(content).length === 0;
