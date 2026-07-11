@@ -18,6 +18,7 @@
 import '../src/infra/binary-writer.ts';
 import '../src/infra/clock.ts';
 import '../src/infra/command-runner.ts';
+import '../src/infra/dir-remover.ts';
 import '../src/infra/file-lister.ts';
 import '../src/infra/file-probe.ts';
 import '../src/infra/file-reader.ts';
@@ -29,6 +30,7 @@ import '../src/infra/office.ts';
 // --- src/composition/ ---
 import '../src/composition/build-deps.ts';
 import '../src/composition/config.ts';
+import '../src/composition/data-home.ts';
 
 // --- src/presenter/ ---
 import '../src/presenter/doctor-report.ts';

@@ -1,6 +1,7 @@
 import { createBunBinaryWriter } from '../infra/binary-writer.ts';
 import { createSystemClock } from '../infra/clock.ts';
 import { createBunCommandRunner } from '../infra/command-runner.ts';
+import { createBunDirRemover } from '../infra/dir-remover.ts';
 import { createBunFileLister } from '../infra/file-lister.ts';
 import { createBunFileProbe } from '../infra/file-probe.ts';
 import { createBunFileReader } from '../infra/file-reader.ts';
@@ -11,6 +12,7 @@ import { createOffice } from '../infra/office.ts';
 import type { BinaryWriter } from '../use-cases/ports/binary-writer.ts';
 import type { Clock } from '../use-cases/ports/clock.ts';
 import type { CommandRunner } from '../use-cases/ports/command-runner.ts';
+import type { DirRemover } from '../use-cases/ports/dir-remover.ts';
 import type { FileLister } from '../use-cases/ports/file-lister.ts';
 import type { FileProbe } from '../use-cases/ports/file-probe.ts';
 import type { FileReader } from '../use-cases/ports/file-reader.ts';
@@ -28,6 +30,7 @@ export type Deps = {
   readonly writer: FileWriter;
   readonly binaryWriter: BinaryWriter;
   readonly lister: FileLister;
+  readonly remover: DirRemover;
   readonly stateStore: StateStore;
   readonly clock: Clock;
   readonly logger: Logger;
@@ -42,6 +45,7 @@ export const buildDeps = (config: AppConfig): Deps => ({
   writer: createBunFileWriter(),
   binaryWriter: createBunBinaryWriter(),
   lister: createBunFileLister(),
+  remover: createBunDirRemover(),
   stateStore: createFileStateStore('data'),
   clock: createSystemClock(),
   logger: createWinstonLogger(config.logLevel),
