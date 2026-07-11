@@ -1,4 +1,4 @@
-import type { RunState } from '../domain/email-state.ts';
+import type { RunFile, RunMode, RunState } from '../domain/email-state.ts';
 import { extractMessages } from '../domain/graph-envelopes.ts';
 import { parseRunId } from '../domain/run-id.ts';
 import type { RunId } from '../domain/run-id.ts';
@@ -12,9 +12,11 @@ import type { Logger } from './ports/logger.ts';
 import type { Office } from './ports/office.ts';
 import type { StateStore } from './ports/state-store.ts';
 
-export type ScanScope = 'unread' | 'all';
+// `since` scans everything received after the given instant (the watermark the script resolved);
+// the script maps a missing watermark to `unread` before it ever reaches this use-case.
+export type ScanScope = { readonly kind: 'unread' } | { readonly kind: 'all' } | { readonly kind: 'since'; readonly iso: string };
 
-export type ScanOptions = { readonly scope: ScanScope; readonly cap: number; readonly blocked: ReadonlyArray<string> };
+export type ScanOptions = { readonly scope: ScanScope; readonly cap: number; readonly blocked: ReadonlyArray<string>; readonly mode: RunMode };
 
 export type ScanError =
   { readonly kind: 'source-failed'; readonly source: 'list-inbox'; readonly message: string } | { readonly kind: 'state-save-failed'; readonly message: string } | WriteError;
@@ -42,11 +44,20 @@ const SELECT_FIELDS = 'id,conversationId,internetMessageId,subject,from,received
 // A valid ISO instant always yields a well-formed RunId, so unwrap is a programmer-bug guard, not a flow.
 const runIdFrom = (nowIso: string): RunId => unwrap(parseRunId(`run-${nowIso.slice(0, 10).replaceAll('-', '')}-${nowIso.slice(11, 19).replaceAll(':', '')}`));
 
+const scopeFilter = (scope: ScanScope): Record<string, string> => {
+  if (scope.kind === 'unread') return { filter: 'isRead eq false' };
+  if (scope.kind === 'since') return { filter: `receivedDateTime gt ${scope.iso}` };
+  return {};
+};
+
+/** The scope as one printable token for candidates.json and reports. */
+export const scopeLabel = (scope: ScanScope): string => (scope.kind === 'since' ? `since ${scope.iso}` : scope.kind);
+
 const listParams = (options: ScanOptions): Record<string, string> => ({
   mailFolderId: 'inbox',
   top: String(options.cap),
   orderby: 'receivedDateTime desc',
-  ...(options.scope === 'unread' ? { filter: 'isRead eq false' } : {}),
+  ...scopeFilter(options.scope),
   select: SELECT_FIELDS,
 });
 
@@ -79,10 +90,14 @@ export const createScanInbox =
     const capTruncated = messages.value.length >= options.cap;
     const nowIso = deps.clock.nowIso();
     const runId = runIdFrom(nowIso);
-    const state: RunState = Object.fromEntries(kept.map((message) => [message.id, 'scanned']));
+    const emails: RunState = Object.fromEntries(kept.map((message) => [message.id, 'scanned']));
+    // The run is born at phase init: nothing moves until user.md + jargon are read and the
+    // skill advances the run to context_loaded (SPEC §2 / principle 6). Pre-research mode is
+    // stamped here so the drafting cap holds for the run's whole unattended life.
+    const state: RunFile = { mode: options.mode, phase: 'init', emails };
     const saved = await deps.stateStore.save(runId, state);
     if (!saved.ok) return err({ kind: 'state-save-failed', message: saved.error.message });
-    const candidates = { runId: runId as string, scannedAt: nowIso, scope: options.scope, capTruncated, kept, dropped };
+    const candidates = { runId: runId as string, scannedAt: nowIso, scope: scopeLabel(options.scope), mode: options.mode, capTruncated, kept, dropped };
     const written = await deps.writer.write(`data/scratch/${runId}/candidates.json`, JSON.stringify(candidates, null, 2));
     if (!written.ok) return err(written.error);
     deps.logger.info('inbox-scanned', { runId, kept: kept.length, dropped: dropped.length, capTruncated });

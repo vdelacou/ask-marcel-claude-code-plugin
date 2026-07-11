@@ -86,7 +86,7 @@ const setup = (response: Result<unknown, OfficeError>): Setup => {
 
 const data = (value: unknown): Result<unknown, OfficeError> => ok({ value });
 
-const OPTIONS: ScanOptions = { scope: 'unread', cap: 25, blocked: [] };
+const OPTIONS: ScanOptions = { scope: { kind: 'unread' }, cap: 25, blocked: [], mode: 'interactive' };
 
 describe('scan-inbox', () => {
   test('a fresh unread inbox becomes a run with every real mail scanned and state initialized', async () => {
@@ -101,7 +101,8 @@ describe('scan-inbox', () => {
     expect(result.value.capTruncated).toBe(false);
     expect(result.value.kept.map((m) => m.id)).toEqual(['m1', 'm3']);
     expect(result.value.dropped).toEqual([{ id: 'm2', subject: 'Your weekly digest', from: 'no-reply@service.com', reason: 'no-reply-sender' }]);
-    expect(stateStore.snapshot(RUN_ID)).toEqual({ m1: 'scanned', m3: 'scanned' });
+    // the run is born at phase init in its stamped mode - emails wait for context_loaded
+    expect(stateStore.snapshot(RUN_ID)).toEqual({ mode: 'interactive', phase: 'init', emails: { m1: 'scanned', m3: 'scanned' } });
 
     const candidates = written.find((w) => w.path === `data/scratch/${RUN_ID}/candidates.json`);
     if (candidates === undefined) throw new Error('candidates.json not written');
@@ -109,6 +110,7 @@ describe('scan-inbox', () => {
       runId: RUN_ID,
       scannedAt: NOW,
       scope: 'unread',
+      mode: 'interactive',
       capTruncated: false,
       kept: [
         {
@@ -147,15 +149,47 @@ describe('scan-inbox', () => {
     await unread.scan(OPTIONS);
     expect(unread.officeLog[0]).toEqual({
       command: 'list-mail-folder-messages',
-      params: { mailFolderId: 'inbox', top: '25', orderby: 'receivedDateTime desc', filter: 'isRead eq false', select: 'id,conversationId,internetMessageId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview' },
+      params: {
+        mailFolderId: 'inbox',
+        top: '25',
+        orderby: 'receivedDateTime desc',
+        filter: 'isRead eq false',
+        select: 'id,conversationId,internetMessageId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview',
+      },
     });
 
     const all = setup(data([]));
-    await all.scan({ scope: 'all', cap: 50, blocked: [] });
+    await all.scan({ scope: { kind: 'all' }, cap: 50, blocked: [], mode: 'interactive' });
     expect(all.officeLog[0]).toEqual({
       command: 'list-mail-folder-messages',
-      params: { mailFolderId: 'inbox', top: '50', orderby: 'receivedDateTime desc', select: 'id,conversationId,internetMessageId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview' },
+      params: {
+        mailFolderId: 'inbox',
+        top: '50',
+        orderby: 'receivedDateTime desc',
+        select: 'id,conversationId,internetMessageId,subject,from,receivedDateTime,hasAttachments,importance,bodyPreview',
+      },
     });
+  });
+
+  test('the since scope (resolved watermark) filters to mail received after it, read or not', async () => {
+    const since = setup(data([]));
+
+    await since.scan({ scope: { kind: 'since', iso: '2026-07-03T05:00:00Z' }, cap: 25, blocked: [], mode: 'interactive' });
+
+    expect(since.officeLog[0]?.params['filter']).toBe('receivedDateTime gt 2026-07-03T05:00:00Z');
+  });
+
+  test('a pre-research scan stamps the run so drafting stays impossible for its whole life', async () => {
+    const { scan, written, stateStore } = setup(data([]));
+
+    const result = await scan({ scope: { kind: 'since', iso: '2026-07-03T05:00:00Z' }, cap: 25, blocked: [], mode: 'pre-research' });
+
+    if (!result.ok) throw new Error('expected ok');
+    expect(stateStore.snapshot(RUN_ID)).toEqual({ mode: 'pre-research', phase: 'init', emails: {} });
+    // candidates.json records the mode and a printable scope label for the report
+    const candidates = JSON.parse(written[0]?.content ?? '{}');
+    expect(candidates.mode).toBe('pre-research');
+    expect(candidates.scope).toBe('since 2026-07-03T05:00:00Z');
   });
 
   test('an empty inbox still yields a well-formed empty run', async () => {
@@ -164,7 +198,7 @@ describe('scan-inbox', () => {
     const result = await scan(OPTIONS);
 
     expect(result).toEqual({ ok: true, value: { runId: RUN_ID, kept: [], dropped: [], capTruncated: false } });
-    expect(stateStore.snapshot(RUN_ID)).toEqual({});
+    expect(stateStore.snapshot(RUN_ID)).toEqual({ mode: 'interactive', phase: 'init', emails: {} });
     expect(written).toHaveLength(1);
   });
 
@@ -173,7 +207,7 @@ describe('scan-inbox', () => {
     // exists beyond the cap and must be surfaced as truncated, not swallowed as a silent drop.
     const { scan, logger } = setup(data(MESSAGES));
 
-    const result = await scan({ scope: 'unread', cap: 2, blocked: [] });
+    const result = await scan({ scope: { kind: 'unread' }, cap: 2, blocked: [], mode: 'interactive' });
 
     if (!result.ok) throw new Error('expected ok');
     expect(result.value.capTruncated).toBe(true);
