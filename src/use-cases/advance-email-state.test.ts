@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { EmailState, RunState } from '../domain/email-state.ts';
+import type { EmailState, RunFile, RunState } from '../domain/email-state.ts';
 import type { Result } from '../domain/result.ts';
 import { createLoggerFake } from '../test-helpers/logger-fake.ts';
 import type { LoggerFake } from '../test-helpers/logger-fake.ts';
@@ -13,8 +13,10 @@ const RUN = 'run-20260703-am';
 
 type Setup = { readonly advance: AdvanceEmailState; readonly stateStore: StateStoreFake; readonly logger: LoggerFake };
 
-const setup = (emails: RunState): Setup => {
-  const stateStore = createStateStoreFake({ [RUN]: emails });
+const run = (emails: RunState, overrides: Partial<Pick<RunFile, 'mode' | 'phase'>> = {}): RunFile => ({ mode: 'interactive', phase: 'context_loaded', ...overrides, emails });
+
+const setup = (emails: RunState, overrides: Partial<Pick<RunFile, 'mode' | 'phase'>> = {}): Setup => {
+  const stateStore = createStateStoreFake({ [RUN]: run(emails, overrides) });
   const logger = createLoggerFake();
   return { advance: createAdvanceEmailState({ stateStore, logger }), stateStore, logger };
 };
@@ -30,7 +32,7 @@ describe('advance-email-state', () => {
     const result = await advance(RUN, 'msg-1', 'approved');
 
     expect(result).toEqual({ ok: true, value: 'approved' });
-    expect(stateStore.snapshot(RUN)?.['msg-1']).toBe('approved');
+    expect(stateStore.snapshot(RUN)?.emails['msg-1']).toBe('approved');
     expect(logger.calls).toEqual([{ level: 'info', event: 'email-state-advanced', meta: { emailId: 'msg-1', to: 'approved' } }]);
   });
 
@@ -53,7 +55,7 @@ describe('advance-email-state', () => {
     const { advance, stateStore } = setup({ 'msg-1': 'approved' });
 
     expect(await advance(RUN, 'msg-1', 'skipped')).toEqual({ ok: true, value: 'skipped' });
-    expect(stateStore.snapshot(RUN)?.['msg-1']).toBe('skipped');
+    expect(stateStore.snapshot(RUN)?.emails['msg-1']).toBe('skipped');
   });
 
   test('an email cannot get its Outlook draft before the user approved the text', async () => {
@@ -63,7 +65,7 @@ describe('advance-email-state', () => {
 
     expectErr(result);
     expect(result.error).toMatchObject({ kind: 'transition', error: { kind: 'invalid-transition', from: 'preflight_ok', to: 'draft_created' } });
-    expect(stateStore.snapshot(RUN)?.['msg-1']).toBe('preflight_ok');
+    expect(stateStore.snapshot(RUN)?.emails['msg-1']).toBe('preflight_ok');
   });
 
   test('every approved reply walks the full gate ladder to done, one legal step at a time', async () => {
@@ -126,5 +128,44 @@ describe('advance-email-state', () => {
     const result = await advance(RUN, 'msg-1', 'approved');
 
     expect(result).toEqual({ ok: false, error: { kind: 'store', message: 'read-only volume' } });
+  });
+
+  test('no email moves while the run is init - user.md and jargon must be read first (principle 6)', async () => {
+    const { advance, stateStore } = setup({ 'msg-1': 'scanned' }, { phase: 'init' });
+
+    const result = await advance(RUN, 'msg-1', 'triaged');
+
+    expectErr(result);
+    expect(result.error).toMatchObject({ kind: 'transition', error: { kind: 'emails-frozen', phase: 'init' } });
+    expect(stateStore.snapshot(RUN)?.emails['msg-1']).toBe('scanned');
+  });
+
+  test('emails are frozen once wrap-up has begun', async () => {
+    const { advance } = setup({ 'msg-1': 'done' }, { phase: 'jargon_drained' });
+
+    const result = await advance(RUN, 'msg-1', 'done');
+
+    expectErr(result);
+    expect(result.error).toMatchObject({ kind: 'transition', error: { kind: 'emails-frozen', phase: 'jargon_drained' } });
+  });
+
+  test('a speculatively researched email the user deselects at the resumed Gate 1 is skipped, its package discarded', async () => {
+    const { advance, stateStore } = setup({ 'msg-1': 'researched' });
+
+    expect(await advance(RUN, 'msg-1', 'skipped')).toEqual({ ok: true, value: 'skipped' });
+    expect(stateStore.snapshot(RUN)?.emails['msg-1']).toBe('skipped');
+  });
+
+  test('a pre-research run researches but can never advance an email toward drafting', async () => {
+    const { advance, stateStore } = setup({ 'msg-1': 'approved' }, { mode: 'pre-research' });
+
+    // the unattended pipeline may research...
+    expect(await advance(RUN, 'msg-1', 'researched')).toEqual({ ok: true, value: 'researched' });
+
+    // ...but the drafting ladder is out of reach until an interactive session resumes the run
+    const blocked = await advance(RUN, 'msg-1', 'context_confirmed');
+    expectErr(blocked);
+    expect(blocked.error).toMatchObject({ kind: 'transition', error: { kind: 'pre-research-cap' } });
+    expect(stateStore.snapshot(RUN)?.emails['msg-1']).toBe('researched');
   });
 });
