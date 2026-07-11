@@ -1,8 +1,9 @@
 /*
  * Thin CLI entry: bun scripts/kb-lint.ts [--json]
  * kb-gardener Phase 1 (SPEC.md §8): read every page under data/kb and report OKF-conformance
- * issues (missing frontmatter / required fields, duplicate slugs). Read-only. Exit 1 on a read
- * failure or crash; exit 0 with the report even when issues are found.
+ * issues (missing frontmatter / required fields, duplicate slugs, broken internal links,
+ * stale pages >180 days, orphans). Read-only. Exit 1 on a read failure or crash; exit 0 with
+ * the report even when issues are found.
  */
 import { buildDeps } from '../src/composition/build-deps.ts';
 import { loadConfig } from '../src/composition/config.ts';

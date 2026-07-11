@@ -1,3 +1,5 @@
+import { lintKbPage } from '../domain/kb-lint.ts';
+import type { LintIssue } from '../domain/kb-lint.ts';
 import { appendLogEntries } from '../domain/kb-log.ts';
 import { kbPagePath, mergeUpdate, renderOkfPage } from '../domain/okf-page.ts';
 import type { KbPageInput } from '../domain/okf-page.ts';
@@ -9,7 +11,7 @@ import type { FileReader, ReadError } from './ports/file-reader.ts';
 import type { FileWriter, WriteError } from './ports/file-writer.ts';
 import type { Logger } from './ports/logger.ts';
 
-export type WriteKbPageOutcome = { readonly outcome: 'wrote' | 'merged'; readonly path: string };
+export type WriteKbPageOutcome = { readonly outcome: 'wrote' | 'merged'; readonly path: string; readonly lint: ReadonlyArray<LintIssue> };
 
 export type WriteKbPageError = ReadError | WriteError;
 
@@ -26,6 +28,8 @@ const appendLog = async (deps: Deps, todayIso: string, entry: string): Promise<R
 };
 
 // A vetted kb-curator page: created when no home exists, otherwise merged under a dated Update (SPEC §8).
+// The landed page is linted in-process (there is no post-write hook — hooks cannot see script
+// writes), so a malformed page is reported the moment it lands, never silently.
 export const createWriteKbPage =
   (deps: Deps): WriteKbPage =>
   async (input) => {
@@ -39,8 +43,9 @@ export const createWriteKbPage =
     const outcome: 'wrote' | 'merged' = exists ? 'merged' : 'wrote';
     const logged = await appendLog(deps, todayIso, `kb-curator: ${outcome} ${input.folder}/${input.slug}.md`);
     if (!logged.ok) return err(logged.error);
-    deps.logger.info('kb-page-written', { path, outcome });
-    return ok({ outcome, path });
+    const lint = lintKbPage({ path, content: page.value });
+    deps.logger.info('kb-page-written', { path, outcome, lintIssues: lint.length });
+    return ok({ outcome, path, lint });
   };
 
 const mergedPage = async (deps: Deps, path: string, input: KbPageInput, todayIso: string): Promise<Result<string, WriteKbPageError>> => {

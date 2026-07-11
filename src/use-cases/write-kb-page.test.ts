@@ -61,10 +61,10 @@ describe('write-kb-page', () => {
 
     const result = await write(INPUT);
 
-    expect(result).toEqual({ ok: true, value: { outcome: 'wrote', path: PAGE_PATH } });
+    expect(result).toEqual({ ok: true, value: { outcome: 'wrote', path: PAGE_PATH, lint: [] } });
     expect(store.snapshot(PAGE_PATH)).toBe(renderOkfPage(INPUT, TODAY));
     expect(store.snapshot(LOG_PATH)).toBe('# Log\n\n## 2026-07-06\n\n- kb-curator: wrote people/jane-boss.md\n\n');
-    expect(logger.calls).toEqual([{ level: 'info', event: 'kb-page-written', meta: { path: PAGE_PATH, outcome: 'wrote' } }]);
+    expect(logger.calls).toEqual([{ level: 'info', event: 'kb-page-written', meta: { path: PAGE_PATH, outcome: 'wrote', lintIssues: 0 } }]);
   });
 
   test('an existing page gains a dated Update section instead of being overwritten, logged as merged', async () => {
@@ -74,9 +74,21 @@ describe('write-kb-page', () => {
 
     const result = await write(INPUT);
 
-    expect(result).toEqual({ ok: true, value: { outcome: 'merged', path: PAGE_PATH } });
+    // the in-process post-write lint reports what the merged-into legacy page still lacks
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        outcome: 'merged',
+        path: PAGE_PATH,
+        lint: [
+          { path: PAGE_PATH, kind: 'missing-field', detail: 'missing required field: title' },
+          { path: PAGE_PATH, kind: 'missing-field', detail: 'missing required field: description' },
+          { path: PAGE_PATH, kind: 'missing-field', detail: 'missing required field: timestamp' },
+        ],
+      },
+    });
     expect(store.snapshot(PAGE_PATH)).toBe('---\ntype: person\n---\n\n# Jane Boss\n\nOriginal body.\n\n## Update 2026-07-06\n\nFocus areas: retail ops.\n');
-    expect(logger.calls[0]?.meta).toEqual({ path: PAGE_PATH, outcome: 'merged' });
+    expect(logger.calls[0]?.meta).toEqual({ path: PAGE_PATH, outcome: 'merged', lintIssues: 3 });
   });
 
   test('a failed page write surfaces as a typed error and the log is left untouched', async () => {

@@ -18,6 +18,7 @@ const setup = (
   const lint = createLintKb({
     lister: { list: async () => (opts.failList === true ? err({ kind: 'list-failed', message: 'scan crashed' }) : ok(paths)) },
     reader: { read: async (path: string) => (opts.failRead === path ? err({ kind: 'read-failed', path, message: 'unreadable' }) : ok(contents[path] ?? '')) },
+    clock: { todayIso: () => '2026-07-11', nowIso: () => '2026-07-11T00:00:00.000Z' },
     logger,
   });
   return { lint, logger };
@@ -25,9 +26,10 @@ const setup = (
 
 describe('lint-kb', () => {
   test('reads every KB page and reports only the concept pages that break OKF conformance', async () => {
+    // jane and broken link each other so the graph checks (orphan) stay quiet - this test pins conformance
     const { lint, logger } = setup(['data/kb/people/jane.md', 'data/kb/topics/broken.md', 'data/kb/people/index.md'], {
-      'data/kb/people/jane.md': CONFORMANT,
-      'data/kb/topics/broken.md': '# broken\n\nno frontmatter',
+      'data/kb/people/jane.md': CONFORMANT.replace('body', 'see [t](../topics/broken.md)'),
+      'data/kb/topics/broken.md': '# broken\n\nsee [jane](../people/jane.md)\n\nno frontmatter',
       'data/kb/people/index.md': '# People\n\nreserved',
     });
 

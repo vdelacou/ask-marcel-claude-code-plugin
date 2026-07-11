@@ -4,6 +4,7 @@ import { KB_ROOT } from '../domain/okf-kb.ts';
 import type { KbFile } from '../domain/okf-kb.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
+import type { Clock } from './ports/clock.ts';
 import type { FileLister, ListError } from './ports/file-lister.ts';
 import type { FileReader, ReadError } from './ports/file-reader.ts';
 import type { Logger } from './ports/logger.ts';
@@ -14,9 +15,10 @@ export type LintKbSummary = { readonly issues: ReadonlyArray<LintIssue>; readonl
 
 export type LintKb = () => Promise<Result<LintKbSummary, LintKbError>>;
 
-type Deps = { readonly lister: FileLister; readonly reader: FileReader; readonly logger: Logger };
+type Deps = { readonly lister: FileLister; readonly reader: FileReader; readonly clock: Clock; readonly logger: Logger };
 
-// Gardener Phase 1 (SPEC §8): read every KB page and report OKF-conformance issues; read-only.
+// Gardener Phase 1 (SPEC §8): read every KB page and report OKF-conformance issues
+// (frontmatter, duplicate slugs, broken internal links, staleness >180d, orphans); read-only.
 export const createLintKb =
   (deps: Deps): LintKb =>
   async () => {
@@ -28,7 +30,7 @@ export const createLintKb =
       if (!read.ok) return err(read.error);
       files.push({ path, content: read.value });
     }
-    const issues = lintKb(files);
+    const issues = lintKb(files, deps.clock.todayIso());
     deps.logger.info('kb-linted', { pages: files.length, issues: issues.length });
     return ok({ issues, pagesLinted: files.length });
   };
