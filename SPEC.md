@@ -2,11 +2,11 @@
 
 A Claude Code **plugin** (skills alone can't ship hooks/agents — see §12) that triages the Outlook inbox, researches each email that needs an answer, drafts threaded replies in the user's voice, and grows a fresh **OKF-native knowledge base**. Read-mostly by design: the only writes to M365 are unsent drafts.
 
-Builds on proven assets from `~/Documents/CODE/ask-marcel/ask-marcel-plugin` (ported, not shared): `create-reply-draft.ts` (Graph `createReplyAll`), `draft-preflight.ts`, `extract-own-body.ts`, kb-curator/doc-reader agent contracts, hook patterns. External deps: `ask-marcel` CLI (M365), `qmd` (local search), `bun` (runtime).
+Builds on proven assets from `~/Documents/CODE/ask-marcel/ask-marcel-plugin` (ported, not shared): `create-reply-draft.ts` (Graph `createReplyAll`), `draft-preflight.ts`, `extract-own-body.ts`, kb-curator/doc-reader agent contracts, hook patterns. External deps: `ask-marcel-office-cli` (M365 — imported as a library, §15.1), `qmd` (local search), `bun` (runtime).
 
 **Design principles**
 1. Deterministic where possible: every mechanical step is a Bun/TypeScript script with JSON in/out, runnable standalone, covered by `bun test`. LLM only where judgment is required.
-2. Flow is *enforced*, not suggested: a per-run state machine gates every transition; a PreToolUse hook physically blocks draft creation without recorded user approval.
+2. Flow is *enforced*, not suggested: per-email AND per-run state machines gate every transition in code; `draft-apply` physically refuses to create a draft without recorded user approval (§3 — the old PreToolUse draft hook died with the CLI, decision 19).
 3. Sub-agents never talk to the user (platform constraint). All interactive gates run in the main thread: **parallel research, serial dialogs**.
 4. Voice profile lives **outside** the KB (`data/profile/`), never indexed, never gardened.
 5. KB capture is **queued per email** and drained in one batch — same guarantee as "capture after every read", ~5× fewer lint/embed cycles.
@@ -21,57 +21,56 @@ Builds on proven assets from `~/Documents/CODE/ask-marcel/ask-marcel-plugin` (po
 ```
 ask-marcel/
 ├── .claude-plugin/plugin.json        # manifest — name: "ask-marcel" (v2 — collision note §14)
-├── CLAUDE.md                         # dev guide (how to test, conventions)
+├── CLAUDE.md                         # dev guide (how to test, conventions, plan/DoD convention)
 ├── SPEC.md                           # this file
 ├── skills/
 │   ├── setup/SKILL.md                # doctor + guided installs + KB init + profile
 │   ├── inbox-zero/SKILL.md           # the main orchestrator (phases 1–5)
 │   ├── voice-profiler/SKILL.md       # build/refresh writing profile
 │   └── kb-gardener/SKILL.md          # recurring KB cleaning/curation
-├── agents/
-│   ├── triage-scout.md               # per-email needs-reply verdict (haiku)
+├── agents/                           # (doc-reader dropped: sub-agents cannot spawn sub-agents,
+│   │                                 #   so the researcher reads documents itself — §2 Phase 3)
+│   ├── triage-scout.md               # per-thread needs-reply verdict (haiku)
 │   ├── email-researcher.md           # per-email deep read + search + 3 strategies
-│   ├── doc-reader.md                 # one document → digest (haiku, escalate model)
-│   └── kb-curator.md                 # one OKF page write + log + lint
-├── hooks/
-│   ├── hooks.json
-│   ├── session-context.ts            # SessionStart: inject user.md + jargon into context
-│   ├── preflight-tools.ts            # PreToolUse Bash: block if CLIs missing → setup
-│   ├── draft-gate.ts                 # PreToolUse Bash: block draft cmds w/o approval state
-│   └── kb-postwrite.ts               # PostToolUse Edit|Write on data/kb: lint that file
+│   └── kb-curator.md                 # one OKF page write + log + in-script lint
+├── hooks/hooks.json                  # SessionStart: deps install + scripts/session-context.ts
+│                                     #   (user.md + jargon into context; §3 — other §3 rows are
+│                                     #   enforced in code, not hooks)
 ├── src/                              # ONE Bun package — atelier Clean Architecture (§15)
-│   ├── domain/                       # state-machine transitions, confidence rubric, OKF page model, triage
-│   │                                 #   rules, queue/jargon logic; branded types at trust boundaries
-│   │                                 #   (SharePointUrl, ScratchPath, KbSlug, EmailAddress…)
-│   ├── use-cases/                    # scan-inbox, fetch-email-bundle, read-doc, search-round, apply-draft,
-│   │                                 #   drain-kb-queue, lint-kb, gen-kb-index, extract-voice, run-doctor
-│   │                                 #   + ports/ (CliRunner, GraphFetch, FileStore, Clock, Logger…)
-│   ├── infra/                        # adapters: ask-marcel CLI runner, qmd runner, Bun.file store, clock
-│   │                                 #   — each with a test seam (§15); NO Graph client (decision 19)
-│   ├── presenter/                    # JSON/text envelopes the skills and hooks consume
-│   ├── composition/                  # wiring per entry point; config.ts (caps, batches, thresholds)
+│   ├── domain/                       # per-email + per-run state machines, triage rules, OKF page
+│   │                                 #   model, kb-lint, queue/jargon, watermark, retention,
+│   │                                 #   run-report, doc-quality, voice rules, slug/base64 utils
+│   ├── use-cases/                    # scan-inbox, fetch-email-bundle, read-doc, search-round,
+│   │                                 #   draft-apply, kb-queue-store, lint-kb, gen-kb-index,
+│   │                                 #   write-kb-page, advance-email-state, advance-run-phase,
+│   │                                 #   sweep-scratch, advance-watermark, write-run-report,
+│   │                                 #   extract-voice-corpus, seed-kb, init-kb, run-doctor,
+│   │                                 #   capture-signature + ports/ (Office, CommandRunner,
+│   │                                 #   File*, DirRemover, StateStore, Clock, Logger…)
+│   ├── infra/                        # adapters: Office library adapter (§15.1), qmd/bun runner,
+│   │                                 #   Bun.file store/probe/writer/lister, dir remover, clock,
+│   │                                 #   winston logger — each with a test seam (§15)
+│   ├── presenter/                    # output envelopes the skills and hooks consume
+│   ├── composition/                  # config.ts (caps, batches, thresholds) + build-deps wiring
 │   └── test-helpers/                 # hand-written fakes for secondary ports
-├── scripts/                          # THIN CLI entries only (console sanctioned here — their output IS the
-│                                     #   interface): doctor.ts, inbox-scan.ts, fetch-email-bundle.ts,
-│                                     #   read-doc.ts, search-exec.ts, state.ts, draft-apply.ts, kb-queue.ts,
-│                                     #   kb-lint.ts, kb-index-gen.ts, draft-preflight.ts, voice-extract.ts
-├── references/
-│   ├── search-module.md              # the search contract (§6)
-│   ├── read-email.md                 # full-thread reading recipe (§7)
-│   ├── read-document.md              # md→images→pdf decision rule (§7)
-│   ├── okf-kb.md                     # page schema per type (§8)
-│   ├── people-orgs.md                # person/org/team modeling + dedup rules (§8b)
-│   └── drafting.md                   # bucket voice, 3-strategy rule, preflight
-├── data/                             # runtime, gitignored
-│   ├── kb/                           # ★ NEW OKF bundle (fresh — no migration)
-│   │   ├── index.md                  # root index, frontmatter: okf_version: "0.1"
-│   │   ├── log.md                    # OKF reserved: date-grouped, newest first
-│   │   ├── people/index.md …         # + orgs/ projects/ topics/ decisions/ meetings/ jargon/
-│   ├── profile/                      # voice-profile.md, about-me.md, user.md, signature.* — NOT KB
-│   ├── scratch/<run-id>/             # bundles, packages, state.json (7-day retention)
-│   ├── reports/                      # one markdown per run — permanent ops history (drift stats, tuning)
-│   └── state/                        # inbox delta watermark, gardener last-run
-└── tests/                            # bun test + fixtures/ (recorded CLI JSON envelopes)
+├── scripts/                          # THIN CLI entries only (console sanctioned here — their output
+│                                     #   IS the interface): doctor, login, kb-init/seed, inbox-scan,
+│                                     #   state, read-mail, fetch-email-bundle, read-doc, search-exec,
+│                                     #   kb-queue, draft-preflight, draft-apply, write-kb-page,
+│                                     #   kb-lint, kb-index-gen, voice-extract, capture-signature,
+│                                     #   watermark, run-report, session-context + gate scripts
+├── references/anti-slop-catalog.md   # carried banned-phrase catalog (decision 21). The other §6-§9
+│                                     #   contracts live in the skills/agents themselves — one copy,
+│                                     #   loaded exactly when the step runs
+├── data/                             # runtime, gitignored — created on first use
+│   ├── kb/                           # ★ OKF bundle: index.md (okf_version), log.md, people/ orgs/
+│   │                                 #   projects/ topics/ decisions/ meetings/ jargon/
+│   ├── profile/                      # voice-profile.md, about-me.md, user.md, draft-template.html — NOT KB
+│   ├── scratch/<run-id>/             # bundles, packages, state.json, kb-queue.jsonl (7-day retention,
+│   │                                 #   swept at every scan)
+│   ├── reports/                      # one markdown per run — permanent ops history (drift stats)
+│   └── state/                        # inbox-watermark.json
+└── src/**/*.test.ts                  # co-located bun tests (atelier layout; no separate tests/ tree)
 ```
 
 ---
@@ -82,8 +81,8 @@ ask-marcel/
 `bun scripts/doctor.ts --json` checks, in order:
 1. **bun** present (bootstrap chicken-and-egg: SKILL.md instructs the checks in prose if bun itself is missing) → guided install: `curl -fsSL https://bun.sh/install | bash` + append PATH export to `~/.zshrc`, verify with `bun --version`.
 2. **qmd** present (≥2.5) → `bun install -g @tobilu/qmd`, then model warm-up note (~700 MB GGUF on first embed).
-3. **ask-marcel-office** present (≥2.0.0 — the binary was renamed from `ask-marcel` at v2; `create-reply-draft` still pending, target next release) → `npm i -g ask-marcel-office-cli` / `ask-marcel-office update`.
-4. **M365 auth** → probe with a cheap GET; only on failure propose `ask-marcel login`.
+3. **Office library** present — the SessionStart hook runs `bun install --production` in the plugin cache; no binary is ever installed (§15.1 R1).
+4. **M365 auth** → probe with a live `get-current-user` through the library; only on failure propose `bun scripts/login.ts` (browser sign-in).
 5. **KB initialized** → if `data/kb/` missing: create tree + root `index.md` (okf_version) + `log.md` + per-folder `index.md`; `qmd collection add data/kb --name ask-marcel-kb`; `qmd context add 'qmd://ask-marcel-kb' "…"`; `qmd update && qmd embed`.
 6. **Voice profile exists** in `data/profile/` → if not, run `voice-profiler` skill (§9).
 7. **KB seeding** (first run only): create person pages for the manager, direct reports, and top colleagues (`list-relevant-people`), plus organization pages derived from their email domains (Graph enrichment: title, manager links). ~20–40 small pages, `source: seed`; one `qmd update && qmd embed` at the end.
@@ -97,7 +96,7 @@ Every fix is proposed via AskUserQuestion before running; doctor re-runs at the 
 - Output `candidates.json`; `state.ts init` creates the run's state machine.
 
 ### Phase 2 — Triage fan-out (parallel sub-agents)
-One **triage-scout** per candidate (model: haiku; batches of 4 in v0.1, config-raised later):
+One **triage-scout** per **conversation** (the M2 observation "users think per-conversation" made canonical: the skill groups candidates by `conversationId` and triages each thread's latest message once; the other messages of the thread are auto-skipped). Model: haiku; batches of 4 in v0.1, config-raised later:
 - Reads the conversation (`convert-mail-to-markdown` on the last N messages of the thread).
 - KB context via **`qmd search` only** (BM25, no LLM rerank — parallel agents must not thrash the local reranker): sender, org, project names.
 - Returns strict JSON: `{id, conversationId, from, subject, needs_reply, urgency: high|med|low, reason, kb_refs[]}`.
@@ -111,7 +110,7 @@ One **triage-scout** per candidate (model: haiku; batches of 4 in v0.1, config-r
 ### Phase 3 — Research fan-out (parallel sub-agents, batches of 2 in v0.1, config-raised later)
 One **email-researcher** per approved email. Inside the agent:
 1. `fetch-email-bundle.ts` (deterministic, §7): full thread markdown + **every** attachment across **all** thread messages (incl. inline images) + resolved SharePoint links → `scratch/<run>/<emailId>/bundle/`.
-2. Read each document per the read-document rule (§7); docs >5k tokens go through doc-reader digests… *(researcher reads directly — sub-agents can't spawn sub-agents; the bundle keeps token cost per-email-isolated)*.
+2. Read each document per the read-document rule (§7). The researcher reads directly — sub-agents can't spawn sub-agents (the once-planned doc-reader digest agent was dropped for this reason); the bundle keeps token cost per-email-isolated.
 3. Formulate **the questions that must be answered** to reply correctly.
 4. Run the **search module** (§6) per question — backends kb + mail + sharepoint in parallel, confidence-scored, ≤5 rounds.
 5. Append KB candidate facts to `kb-queue.ts` (queued — NOT written).
@@ -127,21 +126,22 @@ One **email-researcher** per approved email. Inside the agent:
 6. `draft-preflight.ts` must exit 0 (rewrite loop until clean).
 7. Show draft → **AskUserQuestion**: approve / request changes. On approve: `state → user_approved`.
 8. `draft-apply.ts`: search Drafts for an existing draft on this `conversationId` (`list-mail-folder-messages --id drafts --filter`) → **`ask-marcel update-mail-draft`**; else **`ask-marcel create-reply-draft`** (new CLI command, Graph `createReplyAll` under the hood — threaded, quoted history, inherited recipients) then update body/subject. All through the CLI — the plugin holds no Graph client and no token (decision 19). Never sends. `state → draft_created`.
-9. Drain this email's KB queue: batches to **kb-curator** (§8). `state → kb_captured → done`.
+9. Drain this email's KB queue (`kb-queue.ts drain --email-id` — CONSUMING: the batch leaves the queue file, so nothing is ever re-landed): batches to **kb-curator** (§8). `state → kb_captured → done`.
 
 ### Phase 5 — Wrap-up (code + report; run-level gates)
 - **Jargon drain**: every abbreviation/codename encountered this run (flagged by any agent, queued via `kb-queue.ts --kind jargon`) is proposed to the user in one batch → accepted entries land in `kb/jargon/abbreviations.md` with expansion + one-line meaning.
 - **user.md curation pass**: add what this session taught about the user, improve wording, remove stale entries (§9); the diff summary appears in the report.
 - One `qmd update && qmd embed` for the whole run (not per write).
-- Report table: drafted / updated / skipped(by user / by rule) / blocked(+why); draft edit/reject rate (voice-drift indicator, §9). Coverage block — any source that errored is named. Saved to `data/reports/<run-id>.md` (permanent — the drift alert and triage-rule tuning read this history).
-- Advance inbox watermark; scratch retention sweep (7 days).
+- Report table: drafted / updated / skipped(by user / by rule) / blocked(+why); draft edit/reject rate (voice-drift indicator, §9). Coverage block — any source that errored is named. Written by `run-report.ts --stats '<json>'` to `data/reports/<run-id>.md` (permanent — the drift alert reads the embedded stats markers of past reports: rolling rate over the last 10 drafts, alert >40%).
+- Advance inbox watermark (`watermark.ts advance --run-id` → `data/state/inbox-watermark.json`, set to the run's `scannedAt`). The 7-day scratch sweep runs at every scan, not here.
+- Close the run: `advance-run wrapped` (refused while the KB queue holds undrained candidates).
 
 ### Unattended pre-research mode (`inbox-zero --pre-research`, in v0.1)
 
 Runs Phases 0–3 headless on a schedule (e.g. weekday mornings before work) so the interactive session starts with everything already researched:
 - **Gate 1 is deferred**: every triage-positive email is researched *speculatively* (the price of overnight prep — research for emails you later deselect is discarded; the `--cap` bounds the cost).
 - **Contradictions buffer** to the reconcile queue (no user available); **jargon candidates queue**; `user.md` is never modified unattended.
-- **Drafting is physically impossible overnight**: `user_approved` state cannot exist in an unattended run, so the `draft-gate` hook denies every draft command by construction.
+- **Drafting is physically impossible overnight**: the run is stamped `mode: pre-research`, the state machine refuses any email advance past `researched` (so `user_approved` cannot exist), and `draft-apply` additionally refuses pre-research runs outright.
 - The next interactive `inbox-zero` detects the pre-researched run and **resumes the same run-id**: drains the reconcile queue first, shows the triage table at Gate 1 (deselect discards that email's package), then goes straight into Phase 4 dialogs — the slow work is already done.
 
 ### State machine (enforced by `state.ts`, every step script refuses illegal transitions)
@@ -154,18 +154,20 @@ per email:
 per run:
   init → context_loaded → …emails… → jargon_drained → user_md_reviewed → reindexed → wrapped
 ```
-`context_loaded` requires user.md + jargon read (design principle 6); `wrapped` is unreachable while any email queue is non-empty. Resume-safe: re-running `inbox-zero` picks up mid-run state instead of restarting. Pre-research runs carry `mode: pre-research` and may not advance any email past `researched`; the interactive resume lifts that restriction. Gate 1 is correctable: `approved → skipped` and `skipped → triaged` are valid rewinds (a wrong triage verdict is fixable through `state.ts` alone, no `state.json` hand-edit); `skipped` still cannot jump the gates, and only `done` is a dead end.
+Both machines are enforced in code (`src/domain/email-state.ts`, persisted as `{mode, phase, emails}` in `state.json`; legacy flat files are lifted on read): emails move only while the run is `context_loaded`, `advance-run jargon_drained` is refused while any email is neither done nor skipped, and `wrapped` is refused while the run's KB queue holds undrained candidates. `context_loaded` requires user.md + jargon read (design principle 6). Resume-safe: re-running `inbox-zero` picks up mid-run state instead of restarting. Pre-research runs carry `mode: pre-research` and may not advance any email past `researched` (nor the run past `context_loaded`); `state.ts <runId> resume` lifts that restriction — and `draft-apply` refuses pre-research runs outright as defense in depth. Gate 1 is correctable: `approved → skipped` and `skipped → triaged` are valid rewinds (a wrong triage verdict is fixable through `state.ts` alone, no `state.json` hand-edit); `skipped` still cannot jump the gates, and only `done` is a dead end.
 
 ---
 
-## 3. Hooks (flow enforcement — the backstop; the state machine is the primary gate)
+## 3. Flow enforcement (the state machine is the primary gate; hooks carry what only hooks can)
 
-| Hook | Event / matcher | Behavior |
+| Guarantee | Enforced by | How |
 |---|---|---|
-| `session-context.ts` | SessionStart | Prints `data/profile/user.md` + `data/kb/jargon/abbreviations.md` → injected into context automatically, every session. Makes "always read first" physical, not conventional. |
-| `draft-gate.ts` | PreToolUse, Bash matching `draft-apply.ts\|create-reply-draft\|create-mail-draft\|update-mail-draft` | **Deny** unless `state.json` shows `user_approved` for the referenced email. Makes "no draft without approval" physical — and since ALL writes go through the CLI (decision 19), matching CLI commands covers every path. |
-| `preflight-tools.ts` | PreToolUse, Bash | If `ask-marcel`/`qmd`/`bun` missing → deny with "run setup" message. |
-| `kb-postwrite.ts` | PostToolUse, Edit\|Write under `data/kb/` | Lint **that file** (OKF conformance); reindex is deferred to Phase 5 / gardener (cheap, no embed storm). |
+| Always-loaded context (principle 6) | `hooks/hooks.json` SessionStart → `scripts/session-context.ts` | Prints `data/profile/user.md` + `data/kb/jargon/abbreviations.md` into context every session; silent when absent. Additionally: emails cannot advance while the run is `init` — the skill must `advance-run context_loaded` after confirming the context (code gate). |
+| Library present | `hooks/hooks.json` SessionStart | `bun install --production` in the plugin cache when `ask-marcel-office-cli` is missing. |
+| No draft without approval | **code gate** in `draft-apply` (decision 19 consequence i — the Bash-matching `draft-gate` hook died with the CLI) | Refuses unless the email is `user_approved` in `state.json`; also refuses any `mode: pre-research` run. The library's command registry has no `send`, so sending is impossible at the boundary (§15.1 R2). |
+| Tools present | doctor gate — step 1 of `inbox-zero`/`setup` (replaces the old `preflight-tools` hook) | `doctor.ts --json` before anything runs; failing checks route to setup. |
+| KB pages conform | **in-script lint** in `write-kb-page` (replaces the old `kb-postwrite` hook — hooks cannot see script writes) | Every landed page is linted in-process; issues returned in the script's JSON, surfaced by kb-curator. |
+| Flow order + pre-research caps | per-run state machine (§2) via `state.ts advance-run` | Emails move only in `context_loaded`; wrap phases are sequential; `wrapped` requires all emails done\|skipped + an empty KB queue; pre-research runs cannot pass `researched`/`context_loaded` until `resume`. |
 
 ---
 
@@ -175,8 +177,9 @@ per run:
 |---|---|---|---|
 | `triage-scout` | haiku | email id + thread tail + qmd hints | verdict JSON (see Phase 2) |
 | `email-researcher` | inherit (sonnet+) | email id, bundle path, voice-agnostic | package JSON (see Phase 3) incl. `contradictions[] {claim, kb_version, source_version, evidence}` and `jargon_candidates[] {term, guessed_meaning, context}` |
-| `doc-reader` | haiku (parent may escalate) | one local file path + task line | ≤300-word digest, citations by page |
-| `kb-curator` | haiku | vetted draft: `{folder, slug, type, title, description, resource, tags, content, citations[], rationale}` | `wrote/merged/collision/skipped` + log line appended + per-file lint pass |
+| `kb-curator` | haiku | vetted draft: `{folder, slug, type, title, description, resource, tags, content, citations[], rationale}` | `wrote/merged/skipped` + log line appended + the script's in-process lint result |
+
+*(`doc-reader` was dropped: sub-agents cannot spawn sub-agents, so the researcher reads bundle documents itself — the bundle keeps token cost per-email-isolated. Its contract note survives in §12 provenance.)*
 
 Constraints stated in each agent file: no user interaction, no web, return raw data (final text = return value), never send mail.
 
@@ -194,7 +197,7 @@ Hooks (§3), bundled agents (§4), `${CLAUDE_PLUGIN_ROOT}`-anchored scripts, and
 - **Input**: one question, backends ⊆ {kb, mail, sharepoint}, mode light|full.
 - **Round r ≤ 5**:
   1. LLM writes *context keywords* for the question (round 1) or *revised keywords* (round >1, informed by the logged keywords+results of rounds 1..r−1).
-  2. `search-exec.ts` fans out **in parallel** and returns ONE merged, deduped, source-tagged list:
+  2. `search-exec.ts` fans out **in parallel** and returns ONE merged, deduped, source-tagged list (kb + mail capped at `search.topPerBackend` = 10 per round; `--top` raises a thin round):
      - kb: `qmd search` (BM25 first — it IS BM25); escalate to `qmd query` with structured `intent:/lex:/vec:/hyde:` doc only in full-mode round ≥2, never in parallel-agent context.
      - mail: `ask-marcel search-mail-messages` (KQL ladder: specific → OR-broadened).
      - sharepoint/drive: `ask-marcel microsoft-search-query` (+ `search-onedrive-files` when drive-scoped).
