@@ -1,8 +1,9 @@
 /*
- * Thin CLI entry: bun scripts/search-exec.ts --query "<q>" [--backends kb,mail,sharepoint] [--json]
+ * Thin CLI entry: bun scripts/search-exec.ts --query "<q>" [--backends kb,mail,sharepoint] [--top N] [--json]
  * SPEC.md §6 search module (one round): fan out the query across the requested backends in
- * parallel and print ONE merged, deduped, source-tagged hit list. The confidence rubric and
- * multi-round refine loop live in the calling agent, not here. Exit 1 on crash.
+ * parallel and print ONE merged, deduped, source-tagged hit list. --top bounds the kb and mail
+ * lists per backend (default from config; sharepoint pages at the API default). The confidence
+ * rubric and multi-round refine loop live in the calling agent, not here. Exit 1 on crash.
  */
 import { buildDeps } from '../src/composition/build-deps.ts';
 import { loadConfig } from '../src/composition/config.ts';
@@ -30,8 +31,10 @@ try {
     .split(',')
     .map((backend) => backend.trim())
     .filter(isBackend);
-  const deps = buildDeps(loadConfig({ LOG_LEVEL: 'error', ...process.env }));
-  const result = await createSearchRound(deps)({ query, backends });
+  const config = loadConfig({ LOG_LEVEL: 'error', ...process.env });
+  const deps = buildDeps(config);
+  const top = Number(flagValue('--top', String(config.search.topPerBackend)));
+  const result = await createSearchRound(deps)({ query, backends, top });
   if (Bun.argv.includes('--json')) {
     console.log(JSON.stringify({ ok: true, ...result }));
   } else {

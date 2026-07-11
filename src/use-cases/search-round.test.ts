@@ -51,7 +51,7 @@ const setup = (overrides: Overrides = {}): Setup => {
   return { searchRound, officeLog, runnerLog, logger };
 };
 
-const ALL: SearchRequest = { query: 'Q3 envelope', backends: ['kb', 'mail', 'sharepoint'] };
+const ALL: SearchRequest = { query: 'Q3 envelope', backends: ['kb', 'mail', 'sharepoint'], top: 10 };
 
 describe('search-round', () => {
   test('every requested backend runs in parallel and returns one merged, source-tagged list', async () => {
@@ -64,8 +64,9 @@ describe('search-round', () => {
     const result = await searchRound(ALL);
 
     // the kb backend rides qmd; mail and sharepoint ride the library search commands
-    expect(runnerLog).toEqual(['qmd search Q3 envelope -c ask-marcel-kb --json -n 20']);
-    expect(officeLog).toContainEqual({ command: 'search-mail-messages', params: { query: 'Q3 envelope', top: '20', select: 'id,subject,bodyPreview,webLink' } });
+    // --top flows to the kb and mail backends (sharepoint pages at the API default)
+    expect(runnerLog).toEqual(['qmd search Q3 envelope -c ask-marcel-kb --json -n 10']);
+    expect(officeLog).toContainEqual({ command: 'search-mail-messages', params: { query: 'Q3 envelope', top: '10', select: 'id,subject,bodyPreview,webLink' } });
     expect(officeLog).toContainEqual({ command: 'microsoft-search-query', params: { query: 'Q3 envelope' } });
     expect(result.errors).toEqual([]);
     expect(result.hits).toEqual([
@@ -79,7 +80,7 @@ describe('search-round', () => {
   test('only the requested backends are queried', async () => {
     const { searchRound, officeLog, runnerLog } = setup();
 
-    await searchRound({ query: 'x', backends: ['kb'] });
+    await searchRound({ query: 'x', backends: ['kb'], top: 10 });
 
     expect(runnerLog).toHaveLength(1);
     expect(officeLog).toEqual([]);
@@ -116,7 +117,7 @@ describe('search-round', () => {
   });
 
   test('a qmd search that cannot run, exits non-zero, or returns invalid json records a kb error', async () => {
-    const kbOnly: SearchRequest = { query: 'x', backends: ['kb'] };
+    const kbOnly: SearchRequest = { query: 'x', backends: ['kb'], top: 10 };
 
     const spawnFailed = setup({ kb: err({ kind: 'spawn-failed', message: 'qmd crashed' }) });
     expect((await spawnFailed.searchRound(kbOnly)).errors).toEqual([{ backend: 'kb', message: 'qmd crashed' }]);
