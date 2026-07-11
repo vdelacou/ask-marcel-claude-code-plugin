@@ -89,3 +89,15 @@ R1 (no binary spawn) and R3 (library import boundary) are eslint rules on `src/*
 ## [decision] 2026-07-06 | verify tool output shapes against the real tool before building a parser
 
 The search module parses three backends: qmd `search --json` (a BARE JSON array `[{docid,file,title,snippet,context}]`, not an envelope — use the new `parseJson`, not `parseEnvelope`), `search-mail-messages` (`{value:[message]}`), and `microsoft-search-query` (nested `{value:[{hitsContainers:[{hits:[{hitId,summary,resource}]}]}]}`). All three were confirmed by running `qmd search ... --json` live and reading `commands[name].meta.responseShape` BEFORE writing extractors — no guessed interfaces. qmd is a non-M365 tool, so it stays on `CommandRunner` (R1 permits qmd/bun); mail + sharepoint ride the Office port. search-round fans the backends out with `Promise.all`, each resilient (a failure records a `{backend,message}` and contributes no hits).
+
+## [gotcha] 2026-07-11 | mutate:changed is blind to untracked files
+
+mutate-changed.sh builds its file list from `git diff` against BASE/HEAD plus the index — a brand-NEW untracked source file appears in none of those, so seven freshly created domain/use-case files silently skipped mutation while the run reported green (91.25%). When a slice adds new files, run stryker on them explicitly (`bunx stryker run --mutate "src/domain/new-file.ts,..."`) or stage them first so `--cached` sees them; never read an aggregate score as coverage of files the differ never listed.
+
+## [gotcha] 2026-07-11 | filter-repo rewrites refs but not sibling worktrees' files
+
+`git filter-repo --replace-text` rewrote all 100 commits and updated every branch ref, including one checked out in a live sibling worktree — but that worktree's on-disk FILES and index kept the old content, leaving it dirty against its own rewritten HEAD and still holding the purged string. After any history rewrite, `git -C <worktree> restore --source=HEAD --staged --worktree <files>` the affected paths (its plain `checkout --` restores from the stale index, not HEAD). Also: filter-repo removes `origin` by design — re-add it before the force-push, and take a `git bundle create ... --all` backup first.
+
+## [gotcha] 2026-07-11 | renderer string mutants die by golden toBe, not toContain probes
+
+A markdown renderer probed with nine `toContain` assertions scored 65% — every unprobed template literal was a surviving StringLiteral mutant. Replacing the probes with ONE golden full-output `toBe` (exact joined-lines string) killed the whole cluster at once (65% -> 95%), and a `split('\n')` `toHaveLength` pin on the minimal-input render kills the empty-section ArrayDeclaration mutants the golden's featured path misses. For any domain function whose output IS a document, write the golden first; probes are for behavior, not for surfaces.
