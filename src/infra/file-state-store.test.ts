@@ -13,8 +13,20 @@ describe('file state store', () => {
   test("a run's state round-trips through the JSON file", async () => {
     const store = createFileStateStore(mkdtempSync(join(tmpdir(), 'state-')));
 
-    expect(await store.save(RUN, { m1: 'scanned', m2: 'approved' })).toEqual({ ok: true, value: undefined });
-    expect(await store.load(RUN)).toEqual({ ok: true, value: { m1: 'scanned', m2: 'approved' } });
+    const state = { mode: 'interactive', phase: 'init', emails: { m1: 'scanned', m2: 'approved' } } as const;
+    expect(await store.save(RUN, state)).toEqual({ ok: true, value: undefined });
+    expect(await store.load(RUN)).toEqual({ ok: true, value: state });
+  });
+
+  test('a pre-run-machine state file (bare email map) is lifted to a RunFile on load', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'state-'));
+    mkdirSync(join(base, 'scratch', RUN), { recursive: true });
+    writeFileSync(join(base, 'scratch', RUN, 'state.json'), JSON.stringify({ m1: 'approved', m2: 'skipped' }));
+
+    const loaded = await createFileStateStore(base).load(RUN);
+
+    // legacy runs were interactive and already moving emails - lifted into the context_loaded window
+    expect(loaded).toEqual({ ok: true, value: { mode: 'interactive', phase: 'context_loaded', emails: { m1: 'approved', m2: 'skipped' } } });
   });
 
   test('loading an unknown run is not-found, never a crash', async () => {

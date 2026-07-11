@@ -1,4 +1,4 @@
-import { isRunState } from '../domain/email-state.ts';
+import { liftLegacyRunState } from '../domain/email-state.ts';
 import { err, ok } from '../domain/result.ts';
 import type { RunId } from '../domain/run-id.ts';
 import { formatError } from '../domain/utilities/format-error.ts';
@@ -13,8 +13,10 @@ export const createFileStateStore = (baseDir: string): StateStore => {
       if (!(await file.exists())) return err({ kind: 'not-found', message: `no run state at ${path}` });
       try {
         const parsed: unknown = JSON.parse(await file.text());
-        if (!isRunState(parsed)) return err({ kind: 'io', message: `${path}: not a valid run state` });
-        return ok(parsed);
+        // liftLegacyRunState also migrates pre-run-machine files (a bare email map) on read.
+        const lifted = liftLegacyRunState(parsed);
+        if (lifted === undefined) return err({ kind: 'io', message: `${path}: not a valid run state` });
+        return ok(lifted);
       } catch (thrown) {
         return err({ kind: 'io', message: `${path}: ${formatError(thrown)}` });
       }
