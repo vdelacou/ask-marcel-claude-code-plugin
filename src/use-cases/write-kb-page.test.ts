@@ -107,6 +107,28 @@ describe('write-kb-page', () => {
     expect(store.snapshot(PAGE_PATH)).toBe('prior');
   });
 
+  test('a page whose new content names a never-capture term is refused - nothing written, nothing logged', async () => {
+    const store = createStore({ [LOG_PATH]: '# Log\n\n', 'data/profile/never-capture.txt': 'PROJECT NIGHTFALL\n' });
+    const { write } = build(store);
+
+    const result = await write({ ...INPUT, content: 'Jane now leads project nightfall.' });
+
+    expect(result).toEqual({ ok: false, error: { kind: 'blocked-by-never-capture', term: 'PROJECT NIGHTFALL' } });
+    expect(store.snapshot(PAGE_PATH)).toBeUndefined();
+    expect(store.snapshot(LOG_PATH)).toBe('# Log\n\n');
+  });
+
+  test('only the NEW content is screened on merge - a page already naming the term stays mergeable', async () => {
+    const existing = '---\ntype: person\n---\n\n# Jane\n\nHistoric: project nightfall kickoff.\n';
+    const store = createStore({ [LOG_PATH]: '# Log\n\n', [PAGE_PATH]: existing, 'data/profile/never-capture.txt': 'PROJECT NIGHTFALL\n' });
+    const { write } = build(store);
+
+    const result = await write(INPUT);
+
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.value.outcome).toBe('merged');
+  });
+
   test('a missing log file fails the write as a typed read error', async () => {
     const store = createStore({});
     const { write } = build(store);

@@ -1,3 +1,4 @@
+import { findBlockedTerm } from '../domain/capture-filter.ts';
 import { lintKbPage } from '../domain/kb-lint.ts';
 import type { LintIssue } from '../domain/kb-lint.ts';
 import { appendLogEntries } from '../domain/kb-log.ts';
@@ -5,6 +6,8 @@ import { kbPagePath, mergeUpdate, renderOkfPage } from '../domain/okf-page.ts';
 import type { KbPageInput } from '../domain/okf-page.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
+import { loadNeverCapture } from './kb-queue-store.ts';
+import type { CaptureBlocked } from './kb-queue-store.ts';
 import type { Clock } from './ports/clock.ts';
 import type { FileProbe } from './ports/file-probe.ts';
 import type { FileReader, ReadError } from './ports/file-reader.ts';
@@ -13,7 +16,7 @@ import type { Logger } from './ports/logger.ts';
 
 export type WriteKbPageOutcome = { readonly outcome: 'wrote' | 'merged'; readonly path: string; readonly lint: ReadonlyArray<LintIssue> };
 
-export type WriteKbPageError = ReadError | WriteError;
+export type WriteKbPageError = ReadError | WriteError | CaptureBlocked;
 
 export type WriteKbPage = (input: KbPageInput) => Promise<Result<WriteKbPageOutcome, WriteKbPageError>>;
 
@@ -38,6 +41,11 @@ export const createWriteKbPage =
     const exists = await deps.files.exists(path);
     const page = exists ? await mergedPage(deps, path, input, todayIso) : ok(renderOkfPage(input, todayIso));
     if (!page.ok) return err(page.error);
+    // The FINAL capture sink (decision 20): only the NEW content is screened - an existing
+    // page that already names a later-blocked term must stay mergeable, so the check runs
+    // on the rendered/merged input's own text, i.e. what THIS write would add.
+    const blocked = findBlockedTerm(exists ? input.content : page.value, await loadNeverCapture(deps));
+    if (blocked !== undefined) return err({ kind: 'blocked-by-never-capture', term: blocked });
     const written = await deps.writer.write(path, page.value);
     if (!written.ok) return err(written.error);
     const outcome: 'wrote' | 'merged' = exists ? 'merged' : 'wrote';

@@ -112,6 +112,26 @@ describe('kb-queue-store', () => {
     expect(store.snapshot(PATH)).toBe(`${JSON.stringify(FACT)}\n`);
   });
 
+  test('a candidate naming a never-capture term is refused at append and nothing is queued', async () => {
+    const store = createStore({ 'data/profile/never-capture.txt': '# privacy\nJane Restricted\n' });
+
+    const blocked = await createAppendKbCandidate(store)(RUN_ID, {
+      kind: 'fact',
+      emailId: 'm1',
+      folder: 'people',
+      slug: 'jane-restricted',
+      title: 'Jane Restricted',
+      content: 'met on Tuesday',
+      rationale: '',
+    });
+
+    expect(blocked).toEqual({ ok: false, error: { kind: 'blocked-by-never-capture', term: 'Jane Restricted' } });
+    expect(store.snapshot(PATH)).toBeUndefined();
+
+    // a candidate free of blocked terms still queues normally with the list present
+    expect(await createAppendKbCandidate(store)(RUN_ID, JARGON)).toEqual({ ok: true, value: undefined });
+  });
+
   test('a failed queue rewrite fails the drain and leaves the queue file untouched', async () => {
     const initial = `${JSON.stringify(JARGON)}\n`;
     const store = createStore({ [PATH]: initial }, { failWrite: PATH });

@@ -27,7 +27,7 @@ A vetted draft: `{ folder, slug, type, title, description, resource?, tags, cont
 { "outcome": "wrote | merged | skipped", "path": "data/kb/<folder>/<slug>.md", "note": "<one line: what landed, or why skipped; name any lint issue the script reported>" }
 ```
 
-Report `skipped` (with the reason in `note`) only if the script returns an error you cannot resolve - never crash, never return prose.
+Report `skipped` (with the reason in `note`) only if the script returns an error you cannot resolve - never crash, never return prose. A `blocked-by-never-capture` error is FINAL: report it skipped naming the term, never rephrase the content to sneak it past the filter.
 
 ## Hard rules
 

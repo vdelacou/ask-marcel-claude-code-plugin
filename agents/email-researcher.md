@@ -37,7 +37,7 @@ All Microsoft 365 and local work goes through `bun "${CLAUDE_PLUGIN_ROOT}/script
 
 5. **Queue KB candidates** you learned (durable facts, new people, decisions) and every abbreviation/codename you had to decode:
    `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-queue.ts" append --run-id <runId> --candidate '<one KbCandidate JSON>'`
-   (`{"kind":"fact","emailId":"<emailId>","webLink":"<the source email's webLink from the bundle manifest entry - so the KB can link back to it>","folder":"people|orgs|topics|decisions","slug":"...","title":"...","content":"...","rationale":"..."}` or `{"kind":"jargon","term":"...","guessedMeaning":"...","context":"..."}`). Queue - do NOT write KB pages; the wrap-up drains the queue through kb-curator.
+   (`{"kind":"fact","emailId":"<emailId>","webLink":"<the source email's webLink from the bundle manifest entry - so the KB can link back to it>","folder":"people|orgs|topics|decisions","slug":"...","title":"...","content":"...","rationale":"..."}` or `{"kind":"jargon","term":"...","guessedMeaning":"...","context":"..."}`). Queue - do NOT write KB pages; the wrap-up drains the queue through kb-curator. An append refused with `blocked-by-never-capture` is the user's privacy list speaking: note the refusal in `gaps` and move on - never reword a candidate to evade it.
 
 ## Output - exactly this JSON, nothing else
 

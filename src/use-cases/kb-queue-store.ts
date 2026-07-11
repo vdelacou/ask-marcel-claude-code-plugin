@@ -1,4 +1,5 @@
-import { appendToQueue, splitQueue } from '../domain/kb-queue.ts';
+import { findBlockedTerm, NEVER_CAPTURE_PATH, parseNeverCapture } from '../domain/capture-filter.ts';
+import { appendToQueue, serializeCandidate, splitQueue } from '../domain/kb-queue.ts';
 import type { DrainFilter, KbCandidate } from '../domain/kb-queue.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
@@ -9,18 +10,31 @@ import type { FileWriter, WriteError } from './ports/file-writer.ts';
 
 type ReadDeps = { readonly reader: FileReader; readonly files: FileProbe };
 
-export type QueueError = WriteError | ReadError;
+export type CaptureBlocked = { readonly kind: 'blocked-by-never-capture'; readonly term: string };
+
+export type QueueError = WriteError | ReadError | CaptureBlocked;
 
 const queuePath = (runId: RunId): string => `data/scratch/${runId}/kb-queue.jsonl`;
 
 // A missing queue file reads as empty; an existing-but-unreadable one is a real error we never clobber.
 const readExisting = async (deps: ReadDeps, path: string): Promise<Result<string, ReadError>> => ((await deps.files.exists(path)) ? deps.reader.read(path) : ok(''));
 
+/** The profile's never-capture terms; a missing or unreadable list blocks nothing (decision 20). */
+export const loadNeverCapture = async (deps: ReadDeps): Promise<ReadonlyArray<string>> => {
+  if (!(await deps.files.exists(NEVER_CAPTURE_PATH))) return [];
+  const content = await deps.reader.read(NEVER_CAPTURE_PATH);
+  return content.ok ? parseNeverCapture(content.value) : [];
+};
+
 export type AppendKbCandidate = (runId: RunId, candidate: KbCandidate) => Promise<Result<void, QueueError>>;
 
+// The EARLY capture sink: a candidate naming a never-capture term is refused before it is
+// queued, so the researcher learns immediately instead of the wrap-up failing later.
 export const createAppendKbCandidate =
   (deps: ReadDeps & { readonly writer: FileWriter }): AppendKbCandidate =>
   async (runId, candidate) => {
+    const blocked = findBlockedTerm(serializeCandidate(candidate), await loadNeverCapture(deps));
+    if (blocked !== undefined) return err({ kind: 'blocked-by-never-capture', term: blocked });
     const path = queuePath(runId);
     const existing = await readExisting(deps, path);
     if (!existing.ok) return err(existing.error);
