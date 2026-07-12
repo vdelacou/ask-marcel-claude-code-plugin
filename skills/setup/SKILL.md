@@ -43,7 +43,7 @@ v0.1 note: you can run this from any working directory - the entry scripts resol
 
 10. **Offer scheduling (optional).** Propose two recurring runs via Claude Code scheduled tasks, each registered only on an explicit yes (never preemptively):
    - **Weekly kb-gardener** (e.g. Monday 07:00): runs the kb-gardener skill (lint + reindex + curation plan) to keep the KB healthy.
-   - **Weekday pre-research** (a time the user picks, e.g. 06:30): runs `inbox-zero` in pre-research mode, so the interactive morning session starts with every needing-a-reply email already researched.
+   - **Weekday pre-research** (a time the user picks, e.g. 06:30): runs the inbox-zero skill in pre-research mode - the scheduled prompt scans with `--mode pre-research --scope since-watermark` (only mail since the last wrapped run, drafting impossible by construction) so the interactive morning session picks the run up with `state.ts resume` and goes straight to Gate 1 with everything already researched.
    Use the schedule mechanism (the `schedule` skill / scheduled tasks). Report what was registered; skip silently if the user declines.
 
 ## user.md template
