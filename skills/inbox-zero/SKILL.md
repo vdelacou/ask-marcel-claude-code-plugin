@@ -28,7 +28,7 @@ Deterministic where possible: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` do the 
 
 For each `researched` email, in urgency order:
 
-6. **Present the package.** Full context, what was found (with confidence + citations), and what is missing. Cite links clickable (SharePoint links already carry `?web=1`). For a question the researcher left below confidence 70, you may escalate ONCE here in the main thread: `qmd query "<the question>" -c ask-marcel-kb -n 5` (semantic + rerank - safe serially, forbidden to parallel agents) and fold what it adds into the context.
+6. **Present the package.** Full context, what was found (with confidence + citations), and what is missing. Cite links clickable (SharePoint links already carry `?web=1`). For a question the researcher left below confidence 70, you may escalate ONCE here in the main thread: `qmd query "<the question>" -c ask-marcel-kb -n 5` (semantic + rerank - safe serially, forbidden to parallel agents) and fold what it adds into the context. For scheduling asks, verify any proposed slot against `bun "${CLAUDE_PLUGIN_ROOT}/scripts/calendar-view.ts" --from <iso> --to <iso> --json` before the draft commits to it.
 
 7. **Contradiction gate.** For every contradiction the researcher flagged (mail/doc vs KB or user.md), AskUserQuestion with both versions. The confirmed truth is landed immediately via a `kb-curator` agent (vetted draft -> `bun "${CLAUDE_PLUGIN_ROOT}/scripts/write-kb-page.ts"`), the loser corrected - never left ambiguous.
 

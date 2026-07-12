@@ -35,7 +35,11 @@ All Microsoft 365 and local work goes through `bun "${CLAUDE_PLUGIN_ROOT}/script
    - Score **confidence 0-100**: facet coverage of the question, source authority, recency, corroboration (two independent sources), minus a contradiction penalty.
    - **>= 70** -> answer it. **40-69** -> read more candidates from the same list and rescore. **< 40 or nothing relevant** -> revise the keywords and search again. At most **5 rounds** per question; never answer from a snippet alone.
 
-5. **Queue KB candidates** you learned (durable facts, new people, decisions) and every abbreviation/codename you had to decode:
+5. **Ground scheduling asks in the real calendar.** When a question is about availability or proposing a time ("can we meet Tuesday?", "when works for you?"), run
+   `bun "${CLAUDE_PLUGIN_ROOT}/scripts/calendar-view.ts" --from <windowStartIso> --to <windowEndIso> --json`
+   for the relevant window and shape the strategies around ACTUAL free time (read the user's working hours from `data/profile/user.md` context; busy blocks come sorted). Never propose a slot the busy list contradicts; name the grounding in the answer's citations (`calendar 2026-07-13..15`).
+
+6. **Queue KB candidates** you learned (durable facts, new people, decisions) and every abbreviation/codename you had to decode:
    `bun "${CLAUDE_PLUGIN_ROOT}/scripts/kb-queue.ts" append --run-id <runId> --candidate '<one KbCandidate JSON>'`
    (`{"kind":"fact","emailId":"<emailId>","webLink":"<the source email's webLink from the bundle manifest entry - so the KB can link back to it>","folder":"people|orgs|topics|decisions","slug":"...","title":"...","content":"...","rationale":"..."}` or `{"kind":"jargon","term":"...","guessedMeaning":"...","context":"..."}`). Queue - do NOT write KB pages; the wrap-up drains the queue through kb-curator. An append refused with `blocked-by-never-capture` is the user's privacy list speaking: note the refusal in `gaps` and move on - never reword a candidate to evade it.
 

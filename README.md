@@ -86,6 +86,8 @@ data/              # runtime KB / profile / scratch / reports / state — gitign
 
 `bun scripts/watermark.ts show | advance --run-id <id>` — the inbox delta watermark (`data/state/inbox-watermark.json`): the wrap-up advances it to the run's `scannedAt`, and the next `inbox-scan --scope since-watermark` starts exactly there.
 
+`bun scripts/calendar-view.ts --from <iso> --to <iso> [--json]` — the user's busy list between two instants (recurring series expanded). Grounds scheduling-type replies: read it next to user.md's working hours to propose real slots. Read-only.
+
 `bun scripts/parse-verdicts.ts --file <path> [--json]` — Phase 2: parse the bundled triage-scout replies (one per `-----8<-----` line) into normalized verdicts; `garbage` names the position of each unparseable reply so the skill retries exactly that scout.
 
 `bun scripts/validate-package.ts --file <path> [--json]` — Phase 3: deterministic shape-check of one researcher package (required fields, confidence 0-100, citation required at ≥70, exactly three distinct strategies, ≥1 recipient); precise `problems` feed a single retry.
