@@ -1,5 +1,6 @@
 /*
- * Thin CLI entry: bun scripts/state.ts <runId> show
+ * Thin CLI entry: bun scripts/state.ts list-runs [--json]
+ *                 bun scripts/state.ts <runId> show
  *                 bun scripts/state.ts <runId> advance <emailId> <toState>
  *                 bun scripts/state.ts <runId> advance-run <toPhase>
  *                 bun scripts/state.ts <runId> resume
@@ -17,22 +18,38 @@ import { parseRunId } from '../src/domain/run-id.ts';
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { createAdvanceEmailState } from '../src/use-cases/advance-email-state.ts';
 import { createAdvanceRunPhase, createResumeRun } from '../src/use-cases/advance-run-phase.ts';
+import { createListRuns } from '../src/use-cases/list-runs.ts';
 import { createRegisterEmailState } from '../src/use-cases/register-email.ts';
 import { resolveDataHome } from '../src/composition/data-home.ts';
 
 process.chdir(resolveDataHome(process.env, process.cwd()));
 
 const usage = (): never => {
-  console.error('usage: bun scripts/state.ts <runId> show | advance <emailId> <toState> | advance-run <toPhase> | resume | register <emailId>');
+  console.error('usage: bun scripts/state.ts list-runs | <runId> show | advance <emailId> <toState> | advance-run <toPhase> | resume | register <emailId>');
   process.exit(1);
 };
 
 try {
   const [runId, action, emailId, toState] = Bun.argv.slice(2);
-  if (runId === undefined || action === undefined) usage();
+  if (runId === undefined) usage();
   const deps = buildDeps(loadConfig({ LOG_LEVEL: 'error', ...process.env }));
 
-  if (action === 'show') {
+  if (runId === 'list-runs') {
+    const result = await createListRuns(deps)();
+    if (!result.ok) {
+      console.error(`state: ${JSON.stringify(result.error)}`);
+      process.exit(1);
+    }
+    if (Bun.argv.includes('--json')) {
+      console.log(JSON.stringify({ ok: true, ...result.value }));
+    } else {
+      const unreadable = result.value.unreadable > 0 ? `, ${result.value.unreadable} unreadable` : '';
+      console.log(`state: ${result.value.open.length} open run(s)${unreadable}`);
+      for (const open of result.value.open) console.log(`  ${open.runId} [${open.mode}, ${open.phase}] ${JSON.stringify(open.emails)}`);
+    }
+  } else if (action === undefined) {
+    usage();
+  } else if (action === 'show') {
     const parsed = parseRunId(runId);
     if (!parsed.ok) {
       console.error(`state: ${parsed.error}`);
