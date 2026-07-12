@@ -19,6 +19,9 @@ try {
   const deps = buildDeps(loadConfig({ LOG_LEVEL: 'error', ...process.env }));
   const report = unwrap(await createRunDoctor(deps)());
   console.log(Bun.argv.includes('--json') ? renderDoctorJson(report) : renderDoctorText(report));
+  // Exit explicitly: when the auth probe hits its command deadline, the library's abandoned
+  // browser attempt can hold the event loop open for minutes — the report is already printed.
+  process.exit(0);
 } catch (thrown) {
   console.error(`crashed (unexpected): ${formatError(thrown)}`);
   process.exit(1);
