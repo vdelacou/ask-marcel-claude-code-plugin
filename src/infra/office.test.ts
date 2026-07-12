@@ -4,8 +4,8 @@ import type { GraphClient, GraphError } from 'ask-marcel-office-cli';
 
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
-import { createOffice, createOfficeFromRegistry, runLogin, runLoginWith } from './office.ts';
-import type { CommandRegistry } from './office.ts';
+import { createOffice, createOfficeFromRegistry, createOfficeLazy, runLogin, runLoginWith } from './office.ts';
+import type { CommandRegistry, LibLoader } from './office.ts';
 
 // The adapter passes graph opaquely to execute and never calls its methods — a sentinel is enough.
 const SENTINEL_GRAPH = { marker: 'graph' } as unknown as GraphClient;
@@ -19,6 +19,32 @@ const registryOf = (name: string, result: Result<unknown, GraphError>, log: Reco
       return result;
     },
   },
+});
+
+describe('office adapter (lazy load)', () => {
+  test('the library loads once on first execute and is reused - construction costs nothing', async () => {
+    const log: RecordedCall[] = [];
+    let loads = 0;
+    const load: LibLoader = async () => {
+      loads += 1;
+      return { commands: registryOf('get-current-user', ok({ id: 'me' }), log) as never, buildDeps: () => ({ graph: SENTINEL_GRAPH }) as never };
+    };
+    const office = createOfficeLazy(load);
+    expect(loads).toBe(0);
+
+    expect(await office.execute('get-current-user', {})).toEqual({ ok: true, value: { id: 'me' } });
+    expect(await office.execute('get-current-user', {})).toEqual({ ok: true, value: { id: 'me' } });
+    expect(loads).toBe(1);
+    expect(log).toHaveLength(2);
+  });
+
+  test('a library that fails to load surfaces as command-failed, never a crash', async () => {
+    const office = createOfficeLazy(async () => {
+      throw new Error('module not found');
+    });
+
+    expect(await office.execute('get-current-user', {})).toEqual({ ok: false, error: { kind: 'command-failed', message: 'module not found' } });
+  });
 });
 
 describe('office adapter', () => {

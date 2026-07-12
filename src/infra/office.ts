@@ -1,9 +1,19 @@
-import { buildDeps, commands } from 'ask-marcel-office-cli';
 import type { AuthError, Command, GraphClient, GraphError } from 'ask-marcel-office-cli';
 
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
+import { formatError } from '../domain/utilities/format-error.ts';
 import type { Office, OfficeError } from '../use-cases/ports/office.ts';
+
+// The library bundle costs ~0.24s to import (xlsx/mammoth/playwright JS ride along), which
+// every script paid through buildDeps even when it never touched Microsoft 365 - dozens of
+// state/queue/report spawns per run. The import is therefore DYNAMIC and memoized: only the
+// first actual execute() (or login) pays it; state.ts and friends stay at bun-startup speed.
+type Lib = Pick<typeof import('ask-marcel-office-cli'), 'buildDeps' | 'commands'>;
+
+export type LibLoader = () => Promise<Lib>;
+
+const loadLib: LibLoader = () => import('ask-marcel-office-cli');
 
 // Minimal slice of the library's command registry — the only surface this adapter calls.
 export type CommandRegistry = Record<string, Pick<Command, 'execute'>>;
@@ -24,9 +34,28 @@ export const createOfficeFromRegistry = (registry: CommandRegistry, graph: Graph
   },
 });
 
+// Lazy wiring seam (pattern 2b): the loader is injected so tests exercise the memoization
+// and the load-failure path with a fake lib; production loads the real module once.
+export const createOfficeLazy = (load: LibLoader): Office => {
+  let real: Office | undefined;
+  return {
+    execute: async (command, params) => {
+      if (real === undefined) {
+        try {
+          const lib = await load();
+          real = createOfficeFromRegistry(lib.commands, lib.buildDeps({}).graph);
+        } catch (thrown) {
+          return err({ kind: 'command-failed', message: formatError(thrown) });
+        }
+      }
+      return real.execute(command, params);
+    },
+  };
+};
+
 // Production wiring (R2/R3): the real curated command registry, and a Graph client bound
 // to the CLI's shared token cache via buildDeps. The send-capable graph is never returned.
-export const createOffice = (): Office => createOfficeFromRegistry(commands, buildDeps({}).graph);
+export const createOffice = (): Office => createOfficeLazy(loadLib);
 
 // Minimal slice of the AuthManager used for login (rule 13 seam).
 type LoginAuth = { readonly getAccessToken: () => Promise<Result<unknown, AuthError>> };
@@ -42,4 +71,7 @@ export const runLoginWith =
     return err({ kind: 'command-failed', message: token.error.type === 'auth_cancelled' ? 'login was cancelled' : token.error.message });
   };
 
-export const runLogin = runLoginWith(() => buildDeps({}).makeLoginAuth());
+export const runLogin = async (): Promise<Result<void, OfficeError>> => {
+  const lib = await loadLib();
+  return runLoginWith(() => lib.buildDeps({}).makeLoginAuth())();
+};
