@@ -52,6 +52,14 @@ export const isEmailState = (value: unknown): value is EmailState => typeof valu
 
 export const isRunState = (value: unknown): value is RunState => typeof value === 'object' && value !== null && Object.values(value).every(isEmailState);
 
+// A deferral resurfacing into a NEW run arrives after that run's scan minted the state file,
+// so it must be registered before it can advance. Registration only ever ADDS an email at the
+// ladder's start - an id already present is refused, never reset.
+export type RegisterError = { readonly kind: 'already-registered'; readonly emailId: string };
+
+export const registerEmail = (state: RunState, emailId: string): Result<RunState, RegisterError> =>
+  state[emailId] === undefined ? ok({ ...state, [emailId]: 'scanned' }) : err({ kind: 'already-registered', emailId });
+
 export const advanceEmail = (state: RunState, emailId: string, to: EmailState): Result<RunState, TransitionError> => {
   const from = state[emailId];
   if (from === undefined) return err({ kind: 'unknown-email', emailId });

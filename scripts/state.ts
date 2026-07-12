@@ -3,6 +3,7 @@
  *                 bun scripts/state.ts <runId> advance <emailId> <toState>
  *                 bun scripts/state.ts <runId> advance-run <toPhase>
  *                 bun scripts/state.ts <runId> resume
+ *                 bun scripts/state.ts <runId> register <emailId>
  * Inspect or advance a run's state machine (SPEC.md §2). Emails move only inside the
  * context_loaded window; `advance-run` walks init → context_loaded → jargon_drained →
  * user_md_reviewed → reindexed → wrapped under the domain's guards (wrap needs every email
@@ -16,12 +17,13 @@ import { parseRunId } from '../src/domain/run-id.ts';
 import { formatError } from '../src/domain/utilities/format-error.ts';
 import { createAdvanceEmailState } from '../src/use-cases/advance-email-state.ts';
 import { createAdvanceRunPhase, createResumeRun } from '../src/use-cases/advance-run-phase.ts';
+import { createRegisterEmailState } from '../src/use-cases/register-email.ts';
 import { resolveDataHome } from '../src/composition/data-home.ts';
 
 process.chdir(resolveDataHome(process.env, process.cwd()));
 
 const usage = (): never => {
-  console.error('usage: bun scripts/state.ts <runId> show | advance <emailId> <toState> | advance-run <toPhase> | resume');
+  console.error('usage: bun scripts/state.ts <runId> show | advance <emailId> <toState> | advance-run <toPhase> | resume | register <emailId>');
   process.exit(1);
 };
 
@@ -50,6 +52,10 @@ try {
   } else if (action === 'resume') {
     const result = await createResumeRun(deps)(runId);
     console.log(JSON.stringify(result.ok ? { ok: true, mode: result.value } : { ok: false, error: result.error }));
+    if (!result.ok) process.exit(1);
+  } else if (action === 'register' && emailId !== undefined) {
+    const result = await createRegisterEmailState(deps)(runId, emailId);
+    console.log(JSON.stringify(result.ok ? { ok: true, state: result.value } : { ok: false, error: result.error }));
     if (!result.ok) process.exit(1);
   } else {
     usage();
