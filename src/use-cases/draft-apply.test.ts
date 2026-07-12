@@ -99,6 +99,40 @@ describe('draft-apply', () => {
     expect(stateStore.snapshot(RUN_ID)?.emails).toEqual({ 'msg-1': 'preflight_ok' });
   });
 
+  test('an approved recipients delta patches the fresh reply draft in a follow-up call', async () => {
+    const { draftApply, office } = setup('user_approved');
+
+    const result = await draftApply({ ...REQUEST, to: ['jane@internal-corp.com', 'peer@internal-corp.com'], cc: ['boss@internal-corp.com'] });
+
+    expect(result).toEqual({ ok: true, value: { mode: 'created', draftId: 'new-draft-1', subjectIgnored: true, recipientsApplied: true } });
+    expect(office.calls[2]).toEqual({
+      command: 'update-mail-draft',
+      params: { messageId: 'new-draft-1', toRecipients: 'jane@internal-corp.com,peer@internal-corp.com', ccRecipients: 'boss@internal-corp.com' },
+    });
+  });
+
+  test('on the update path the recipients ride the same patch - one call, no follow-up', async () => {
+    const { draftApply, office } = setup('user_approved', { drafts: listing([{ id: 'existing-draft-1', conversationId: 'conv-1' }]) });
+
+    const result = await draftApply({ ...REQUEST, cc: ['boss@internal-corp.com'] });
+
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.value).toMatchObject({ mode: 'updated', recipientsApplied: true });
+    expect(office.calls).toHaveLength(2);
+    expect(office.calls[1]?.params['ccRecipients']).toBe('boss@internal-corp.com');
+    expect(office.calls[1]?.params['toRecipients']).toBeUndefined();
+  });
+
+  test('a created draft whose recipients patch fails does NOT advance - the re-run patches the existing draft', async () => {
+    const { draftApply, office, stateStore } = setup('user_approved', { update: commandFailed('recipient rejected') });
+
+    const result = await draftApply({ ...REQUEST, cc: ['boss@internal-corp.com'] });
+
+    expect(result).toEqual({ ok: false, error: { kind: 'draft-failed', message: 'draft new-draft-1 created but recipients not applied: recipient rejected' } });
+    expect(office.calls).toHaveLength(3);
+    expect(stateStore.snapshot(RUN_ID)?.emails).toEqual({ 'msg-1': 'user_approved' });
+  });
+
   test('a pre-research run can never draft, even if an email somehow reads user_approved', async () => {
     const { draftApply, office } = setup('user_approved', { mode: 'pre-research' });
 

@@ -1,6 +1,8 @@
 /*
  * Thin CLI entry: bun scripts/draft-apply.ts --run-id <id> --email-id <id> --conversation-id <id> \
- *   --reply-to <messageId> --subject "<subj>" --body-file <path> [--json]
+ *   --reply-to <messageId> --subject "<subj>" --body-file <path> [--to "a@x,b@y"] [--cc "c@z"] [--json]
+ * --to/--cc apply the user-approved recipients delta (comma-separated); omitted means the draft
+ * keeps what the threaded reply inherits.
  * SPEC.md §2 Phase 4 step 8: create or update the UNSENT reply draft for an approved email. This IS
  * the code approval gate (decision 19) - it refuses unless the email's state is user_approved, then
  * advances to draft_created. Never sends. Body is read from a file (HTML, signature included).
@@ -41,11 +43,27 @@ try {
     console.error(`draft-apply: cannot read --body-file (${bodyRead.error.message})`);
     process.exit(1);
   }
-  const result = await createDraftApply(deps)({ runId: runId.value, emailId, conversationId, replyToMessageId, subject, body: bodyRead.value });
+  const splitAddresses = (raw: string): ReadonlyArray<string> =>
+    raw
+      .split(',')
+      .map((address) => address.trim())
+      .filter((address) => address !== '');
+  const toRaw = flagValue('--to');
+  const ccRaw = flagValue('--cc');
+  const result = await createDraftApply(deps)({
+    runId: runId.value,
+    emailId,
+    conversationId,
+    replyToMessageId,
+    subject,
+    body: bodyRead.value,
+    ...(toRaw === '' ? {} : { to: splitAddresses(toRaw) }),
+    ...(ccRaw === '' ? {} : { cc: splitAddresses(ccRaw) }),
+  });
   if (Bun.argv.includes('--json')) {
     console.log(JSON.stringify(result.ok ? { ok: true, ...result.value } : { ok: false, error: result.error }));
   } else if (result.ok) {
-    console.log(`draft-apply: draft ${result.value.mode} (${result.value.draftId})`);
+    console.log(`draft-apply: draft ${result.value.mode} (${result.value.draftId})${result.value.recipientsApplied === true ? ' - recipients applied' : ''}`);
     if (result.value.subjectIgnored === true) {
       console.error('  ! --subject ignored: create-reply-draft inherits RE: from the message being replied to; re-run with an existing draft (update) for the subject to apply');
     }

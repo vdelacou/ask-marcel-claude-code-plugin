@@ -14,6 +14,10 @@ export type DraftApplyRequest = {
   readonly replyToMessageId: string;
   readonly subject: string;
   readonly body: string;
+  // Approved recipient deltas from the researcher package (SPEC §2 Phase 3): absent means
+  // keep what the thread inherits; present means the draft is patched to exactly these.
+  readonly to?: ReadonlyArray<string>;
+  readonly cc?: ReadonlyArray<string>;
 };
 
 export type DraftApplyError =
@@ -21,7 +25,7 @@ export type DraftApplyError =
   | { readonly kind: 'draft-failed'; readonly message: string }
   | { readonly kind: 'state-store-failed'; readonly message: string };
 
-export type DraftApplySummary = { readonly mode: 'created' | 'updated'; readonly draftId: string; readonly subjectIgnored?: true };
+export type DraftApplySummary = { readonly mode: 'created' | 'updated'; readonly draftId: string; readonly subjectIgnored?: true; readonly recipientsApplied?: true };
 
 export type DraftApply = (request: DraftApplyRequest) => Promise<Result<DraftApplySummary, DraftApplyError>>;
 
@@ -29,23 +33,46 @@ type Deps = { readonly office: Office; readonly stateStore: StateStore; readonly
 
 const draftsParams = (conversationId: string): Record<string, string> => ({ mailFolderId: 'drafts', filter: `conversationId eq '${conversationId}'`, select: 'id,conversationId' });
 
+// The library takes recipients as comma-separated address lists.
+const recipientParams = (request: DraftApplyRequest): Record<string, string> => ({
+  ...(request.to === undefined ? {} : { toRecipients: request.to.join(',') }),
+  ...(request.cc === undefined ? {} : { ccRecipients: request.cc.join(',') }),
+});
+
+const hasRecipients = (request: DraftApplyRequest): boolean => request.to !== undefined || request.cc !== undefined;
+
 const findExistingDraft = async (deps: Deps, conversationId: string): Promise<Result<string | undefined, DraftApplyError>> => {
   const run = await deps.office.execute('list-mail-folder-messages', draftsParams(conversationId));
   return run.ok ? ok(extractFirstMessageId(run.value)) : err({ kind: 'draft-failed', message: run.error.message });
 };
 
-// A new thread gets a threaded reply-all draft (create-reply-draft inherits recipients + RE: subject + quoted history).
+// A new thread gets a threaded reply-all draft (create-reply-draft inherits recipients + RE: subject
+// + quoted history). An approved recipients delta lands as a follow-up patch on the fresh draft: a
+// failed patch fails the whole apply (state stays user_approved), and the re-run takes the update
+// path on the now-existing draft - never a silently wrong audience.
 const createDraft = async (deps: Deps, request: DraftApplyRequest): Promise<Result<DraftApplySummary, DraftApplyError>> => {
   const run = await deps.office.execute('create-reply-draft', { replyToMessageId: request.replyToMessageId, bodyContent: request.body, bodyContentType: 'HTML' });
   if (!run.ok) return err({ kind: 'draft-failed', message: run.error.message });
   const draftId = extractDraftId(run.value);
-  return draftId === undefined ? err({ kind: 'draft-failed', message: 'create-reply-draft returned no draft id' }) : ok({ mode: 'created', draftId });
+  if (draftId === undefined) return err({ kind: 'draft-failed', message: 'create-reply-draft returned no draft id' });
+  if (!hasRecipients(request)) return ok({ mode: 'created', draftId });
+  const patched = await deps.office.execute('update-mail-draft', { messageId: draftId, ...recipientParams(request) });
+  return patched.ok
+    ? ok({ mode: 'created', draftId, recipientsApplied: true })
+    : err({ kind: 'draft-failed', message: `draft ${draftId} created but recipients not applied: ${patched.error.message}` });
 };
 
 // An existing draft on the conversation is patched in place, never duplicated.
 const updateDraft = async (deps: Deps, messageId: string, request: DraftApplyRequest): Promise<Result<DraftApplySummary, DraftApplyError>> => {
-  const run = await deps.office.execute('update-mail-draft', { messageId, subject: request.subject, bodyContent: request.body, bodyContentType: 'HTML' });
-  return run.ok ? ok({ mode: 'updated', draftId: extractDraftId(run.value) ?? messageId }) : err({ kind: 'draft-failed', message: run.error.message });
+  const run = await deps.office.execute('update-mail-draft', {
+    messageId,
+    subject: request.subject,
+    bodyContent: request.body,
+    bodyContentType: 'HTML',
+    ...recipientParams(request),
+  });
+  if (!run.ok) return err({ kind: 'draft-failed', message: run.error.message });
+  return ok({ mode: 'updated', draftId: extractDraftId(run.value) ?? messageId, ...(hasRecipients(request) ? { recipientsApplied: true as const } : {}) });
 };
 
 export const createDraftApply =
