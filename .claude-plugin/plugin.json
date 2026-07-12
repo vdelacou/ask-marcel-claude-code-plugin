@@ -1,5 +1,5 @@
 {
   "name": "ask-marcel",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Inbox-zero reply plugin for Claude Code: triages your Outlook inbox, researches each email that needs an answer, drafts threaded replies in your voice, and grows an OKF knowledge base. Read-mostly - the only Microsoft writes are unsent drafts."
 }
