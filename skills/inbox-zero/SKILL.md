@@ -7,6 +7,8 @@ description: Triage the Outlook inbox, research each email that needs a reply, a
 
 Deterministic where possible: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/*.ts"` do the mechanics, agents only judge, and the user decides at every gate. Every email's position lives in the run's state machine - never advance it except through `${CLAUDE_PLUGIN_ROOT}/scripts/state.ts`, which refuses illegal transitions. Research fans out in parallel (agents); every dialog is serial in the main thread (sub-agents cannot ask the user). Any working directory is fine - the scripts run via `${CLAUDE_PLUGIN_ROOT}`; `data/` lives in the folder you launch Claude Code from (`ASK_MARCEL_HOME` overrides with a fixed path).
 
+**Context discipline (SPEC principle 9).** A full inbox is a long run: stay durable through the checkpoints, not by holding everything in context. Keep document and thread reads inside the sub-agents (the bundle isolates their token cost); process in the configured batches (`triage.batchSize`, `research.batchSize`); trust the state machine as your memory - every position persists, so if context is compacted mid-run, `state.ts list-runs` + resume picks up exactly where you were rather than restarting. Never try to read the whole inbox into the main thread.
+
 ## Phase 0-2 + Gate 1 - triage
 
 0. **Always-loaded context (principle 6).** The SessionStart hook prints `data/profile/user.md` + `data/kb/jargon/abbreviations.md`. Confirm both are in your context; if not (or stale), Read them now. Nothing else starts before this.
