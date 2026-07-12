@@ -35,7 +35,9 @@ Every non-trivial task gets a written plan with a **definition of done per item*
 file — not only in the conversation — so a lost session resumes at the same point with the
 same information:
 
-- Live task board: the newest `.claude/AUDIT-*.md` (item → DoD → status `open|fixed|verified`).
+- Live task board: the newest `.claude/AUDIT-*.md` (item → DoD → status `open|fixed|verified`)
+  records what happened; the newest `.claude/PLAN-*.md` holds the forward plan (owner + DoD
+  per step - start any fresh session from its first unfinished item).
 - Session journal: [.claude/LESSONS.md](.claude/LESSONS.md) (append-only `[mistake]/[decision]/[gotcha]`;
   check it at session start, propose candidates at session end).
 - Update the board line the moment an item lands; a re-audit pass flips `fixed → verified`.
