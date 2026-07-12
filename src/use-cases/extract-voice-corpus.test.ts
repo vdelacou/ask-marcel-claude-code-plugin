@@ -47,7 +47,11 @@ const setup = (list: OfficeResp, convertById: Readonly<Record<string, OfficeResp
       execute: async (command, params) => {
         officeLog.push({ command, params });
         if (command === 'list-mail-messages') return list;
-        if (command === 'convert-mail-to-markdown') return convertById[params['messageId']] ?? err({ kind: 'command-failed', message: 'no fixture' });
+        if (command === 'convert-mail-to-markdown') {
+          // the corpus is prose-only: a conversion that embeds base64 images is a broken call
+          if (params['inlineImages'] !== 'false') return err({ kind: 'command-failed', message: 'corpus conversion must pass inlineImages false' });
+          return convertById[params['messageId']] ?? err({ kind: 'command-failed', message: 'no fixture' });
+        }
         return err({ kind: 'unknown-command', message: command });
       },
     },

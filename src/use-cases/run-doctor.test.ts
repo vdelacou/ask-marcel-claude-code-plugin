@@ -32,8 +32,9 @@ const createOfficeFake = (auth: OfficeResp): OfficeFake => {
   const log: string[] = [];
   return {
     log,
-    execute: async (command) => {
-      log.push(command);
+    execute: async (command, params) => {
+      // the probe is the doctor's sole M365 call and must stay minimal: id only, no expand
+      log.push(`${command} select=${params['select'] ?? ''}`);
       return auth;
     },
   };
@@ -123,7 +124,7 @@ describe('run-doctor', () => {
       fix: 'sign in to Microsoft 365 via the setup skill (browser login)',
     });
     // the doctor only reads the session; it never triggers an interactive login (get-current-user is its sole M365 call)
-    expect(office.log).toEqual(['get-current-user']);
+    expect(office.log).toEqual(['get-current-user select=id']);
     expect(runner.log.some((c) => c.includes('login'))).toBe(false);
   });
 

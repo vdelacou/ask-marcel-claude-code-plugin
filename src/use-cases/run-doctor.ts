@@ -32,7 +32,7 @@ const gatherProbes = (
   Promise.all([
     deps.runner.run('bun', ['--version']),
     deps.runner.run('qmd', ['--version']),
-    deps.office.execute('get-current-user', {}),
+    deps.office.execute('get-current-user', { select: 'id' }),
     deps.runner.run('qmd', ['collection', 'list']),
     deps.files.exists('data/kb/index.md'),
     deps.files.exists('data/profile/voice-profile.md'),

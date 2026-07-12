@@ -57,7 +57,9 @@ const listSent = async (deps: Deps, options: CorpusOptions): Promise<Result<Read
 };
 
 const ownBodyOf = async (deps: Deps, meta: SentMeta, options: CorpusOptions): Promise<string | undefined> => {
-  const converted = await deps.office.execute('convert-mail-to-markdown', { messageId: meta.id });
+  // inlineImages defaults to TRUE in the library - without 'false' every signature logo and
+  // pasted screenshot lands as base64 in the corpus the voice analysis reads. Prose only.
+  const converted = await deps.office.execute('convert-mail-to-markdown', { messageId: meta.id, inlineImages: 'false' });
   if (!converted.ok) return undefined;
   const markdown = extractMarkdown(converted.value);
   if (!markdown.ok) return undefined;
