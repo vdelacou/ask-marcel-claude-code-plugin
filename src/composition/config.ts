@@ -12,6 +12,8 @@ export type SearchConfig = { readonly topPerBackend: number };
 
 export type ScratchConfig = { readonly retentionDays: number };
 
+export type FollowUpsConfig = { readonly fetchTop: number; readonly minAgeDays: number };
+
 export type AppConfig = {
   readonly logLevel: string;
   readonly seed: SeedConfig;
@@ -21,6 +23,7 @@ export type AppConfig = {
   readonly research: ResearchConfig;
   readonly search: SearchConfig;
   readonly scratch: ScratchConfig;
+  readonly followUps: FollowUpsConfig;
 };
 
 // v0.1 defaults per SPEC.md decision 15 (scan 25 / triage 4 / research 2 — raised to 50/8/4 once
@@ -35,4 +38,5 @@ export const loadConfig = (env: Readonly<Record<string, string | undefined>>): A
   research: { batchSize: 2 },
   search: { topPerBackend: 10 },
   scratch: { retentionDays: 7 },
+  followUps: { fetchTop: 100, minAgeDays: 3 },
 });

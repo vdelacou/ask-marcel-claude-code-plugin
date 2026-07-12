@@ -10,6 +10,7 @@ const V01_DEFAULTS = {
   research: { batchSize: 2 },
   search: { topPerBackend: 10 },
   scratch: { retentionDays: 7 },
+  followUps: { fetchTop: 100, minAgeDays: 3 },
 };
 
 describe('config', () => {
