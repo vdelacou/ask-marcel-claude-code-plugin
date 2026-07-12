@@ -101,3 +101,15 @@ mutate-changed.sh builds its file list from `git diff` against BASE/HEAD plus th
 ## [gotcha] 2026-07-11 | renderer string mutants die by golden toBe, not toContain probes
 
 A markdown renderer probed with nine `toContain` assertions scored 65% — every unprobed template literal was a surviving StringLiteral mutant. Replacing the probes with ONE golden full-output `toBe` (exact joined-lines string) killed the whole cluster at once (65% -> 95%), and a `split('\n')` `toHaveLength` pin on the minimal-input render kills the empty-section ArrayDeclaration mutants the golden's featured path misses. For any domain function whose output IS a document, write the golden first; probes are for behavior, not for surfaces.
+
+## [gotcha] 2026-07-11 | recaptureSecondaryViaBrowser=false does not stop the primary browser rung
+
+The command-path AuthManager (buildDeps().auth) only fail-fasts the SECONDARY token getters; getAccessToken still ends at the interactive Playwright browser, so any plugin command with a stale cache + dead refresh token popped a sign-in window and blocked up to 5 minutes (observed mid search-exec in the 2026-07-11 audit session). The plugin now wraps the command-path auth in withCommandAuthDeadline (20s -> auth_failed with code interactive_login_required); a real no-browser knob belongs upstream in office-cli.
+
+## [decision] 2026-07-11 | login.ts --fresh is the stuck-session recovery; commands never wait on a browser
+
+bun scripts/login.ts --fresh calls the library logout (wipes ~/.ask-marcel/token-cache.json AND browser-profile/) before a full sign-in, recapturing every companion token - the plugin equivalent of the CLI's documented `logout && login` remedy. Login reports elevated/chatsvcagg as captured/failed/untested instead of a bare "authenticated" (untested = cache short-circuited, no browser ran). Adapter errors keep the library's machine-readable code and rewrite binary remedies to plugin commands (src/domain/login-remedy.ts). The setup skill must run login with a 600000 ms tool timeout - the interactive wait is ~5 min and the 2 min default killed sign-ins midway.
+
+## [gotcha] 2026-07-11 | marketplace cache installs have no node_modules; Bun auto-install covers script runs
+
+A plugin installed from the marketplace cache (~/.claude/plugins/cache/...) ships without node_modules; bun scripts/*.ts still resolves ask-marcel-office-cli through Bun auto-install from the global cache (verified live from a checkout with no node_modules). So absence of node_modules is not a login failure mode on this machine.

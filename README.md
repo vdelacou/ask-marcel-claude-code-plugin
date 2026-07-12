@@ -82,7 +82,7 @@ data/              # runtime KB / profile / scratch / reports / state — gitign
 
 `bun scripts/kb-index-gen.ts [--json]` — kb-gardener Phase 1: regenerate every folder's `index.md` from its concept pages (derived data).
 
-`bun scripts/login.ts` — authenticate to Microsoft 365 via the library's browser sign-in (cached → refresh → Playwright). One-time prerequisite: `bunx playwright install`.
+`bun scripts/login.ts [--fresh] [--json]` — authenticate to Microsoft 365 via the library's browser sign-in (cached → refresh → Playwright; the interactive wait allows up to ~5 min, so give it a generous timeout). Reports whether the companion tokens (elevated / teams-chat) were captured, or `untested` when the cached session answered without a browser. `--fresh` wipes the token cache and browser profile first — the recovery for a stuck or half-expired session (sign-in keeps re-prompting, or a command says a token "was not captured at login"). `--json` prints a one-line envelope for skills. One-time prerequisite: `bunx playwright install`.
 
 `bun scripts/watermark.ts show | advance --run-id <id>` — the inbox delta watermark (`data/state/inbox-watermark.json`): the wrap-up advances it to the run's `scannedAt`, and the next `inbox-scan --scope since-watermark` starts exactly there.
 
