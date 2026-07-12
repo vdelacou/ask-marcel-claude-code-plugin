@@ -23,7 +23,7 @@ Two phases: Phase 1 is deterministic and safe to auto-apply; Phase 2 is a plan y
    - **Interactive:** show the plan; AskUserQuestion per action (apply / skip / edit). Execute each approved action through a `kb-curator` agent (so the log, lint, and index stay consistent) - never by editing `data/kb/**` directly.
    - **Unattended (scheduled):** auto-apply only the reversible subset (index regeneration, frontmatter fixes); buffer every merge/split/move for a human and report them - never destructive without a human.
 
-5. **Reindex.** One `qmd update && qmd embed` for the whole run so search reflects the changes.
+5. **Reindex.** One `qmd update -c ask-marcel-kb` so BM25 reflects the changes, then `qmd embed -c ask-marcel-kb` best-effort (a missing-models failure is reported once and tolerated - SPEC decision 24).
 
 ## Hard rules
 

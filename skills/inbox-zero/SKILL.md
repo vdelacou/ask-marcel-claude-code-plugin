@@ -55,7 +55,7 @@ For each `researched` email, in urgency order:
 
 16. **user.md curation.** Add what this session taught about the user, compress, remove stale entries (hard cap ~150 lines); show the diff in the report. Then `advance-run user_md_reviewed`.
 
-17. **Reindex.** One `qmd update && qmd embed` for the whole run. Then `advance-run reindexed`.
+17. **Reindex.** One `qmd update -c ask-marcel-kb` for the whole run, then `qmd embed -c ask-marcel-kb` best-effort: if embed fails because the models were never pulled, say so once and continue - BM25 search is unaffected (SPEC decision 24). Then `advance-run reindexed`.
 
 18. **Report + watermark + wrap.** Write the permanent run report: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/run-report.ts" --run-id <runId> --stats '<json>' --json` with `{drafted, updated, skippedByUser, skippedByRule, blocked[], editedOrRejected, coverage[], notes}` - it lands `data/reports/<runId>.md` and computes the rolling edit/reject drift rate (an alert above 40% over the last 10 drafts means: recommend the voice-profiler skill). Show the drift line and the Coverage block in chat. Advance the inbox watermark: `bun "${CLAUDE_PLUGIN_ROOT}/scripts/watermark.ts" advance --run-id <runId>`. Close the run: `advance-run wrapped` - it refuses while the KB queue still holds undrained candidates (no fact is ever silently lost). Optionally offer the follow-ups skill ("what am I waiting on?") - threads whose silence the user may want to chase.
 
