@@ -60,7 +60,7 @@ data/              # runtime KB / profile / scratch / reports / state — gitign
 
 `bun scripts/inbox-scan.ts [--scope unread|all|since-watermark] [--cap N] [--mode interactive|pre-research] [--json]` — Phase 1 of inbox-zero: sweep scratch runs past 7-day retention, list the inbox (`since-watermark` scans only mail received after the last wrapped run, falling back to unread when no watermark exists), apply rule-based drops (no-reply senders, calendar responses, `data/profile/blocked-senders.txt`), mint a run under `data/scratch/<run-id>/` (stamped with its mode) and initialize its state machine at phase `init`.
 
-`bun scripts/state.ts <runId> show | advance <emailId> <toState> | advance-run <toPhase> | resume` — inspect or advance the run's state machines (per-email and per-run `init -> context_loaded -> jargon_drained -> user_md_reviewed -> reindexed -> wrapped`); emails move only inside `context_loaded`, wrap gates check email terminality and an empty KB queue, `resume` lifts a pre-research run to interactive. Illegal transitions are refused with a typed error.
+`bun scripts/state.ts <runId> show | advance <emailId> <toState> | advance-run <toPhase> | resume | register <emailId>` — inspect or advance the run's state machines (per-email and per-run `init -> context_loaded -> jargon_drained -> user_md_reviewed -> reindexed -> wrapped`); emails move only inside `context_loaded`, wrap gates check email terminality and an empty KB queue, `resume` lifts a pre-research run to interactive. Illegal transitions are refused with a typed error.
 
 `bun scripts/voice-extract.ts [--keep N] [--json]` — build the voice corpus: the last N substantive messages the user wrote (from:me, all folders), quoted chains and signatures stripped, bucketed.
 
@@ -85,6 +85,10 @@ data/              # runtime KB / profile / scratch / reports / state — gitign
 `bun scripts/login.ts [--fresh] [--json]` — authenticate to Microsoft 365 via the library's browser sign-in (cached → refresh → Playwright; the interactive wait allows up to ~5 min, so give it a generous timeout). Reports whether the companion tokens (elevated / teams-chat) were captured, or `untested` when the cached session answered without a browser. `--fresh` wipes the token cache and browser profile first — the recovery for a stuck or half-expired session (sign-in keeps re-prompting, or a command says a token "was not captured at login"). `--json` prints a one-line envelope for skills. One-time prerequisite: `bunx playwright install`.
 
 `bun scripts/watermark.ts show | advance --run-id <id>` — the inbox delta watermark (`data/state/inbox-watermark.json`): the wrap-up advances it to the run's `scannedAt`, and the next `inbox-scan --scope since-watermark` starts exactly there.
+
+`bun scripts/waiting-on.ts [--days N] [--top N] [--json]` — threads across the whole mailbox where the user's message is the newest and silence has lasted at least N days (default 3): the "what am I waiting on?" list, longest silence first. Read-only.
+
+`bun scripts/defer.ts add --conversation-id <id> --subject "<s>" --until <YYYY-MM-DD> [--reason "<r>"] | due [--consume] [--json] | list [--json]` — Gate 1's "not now": a deferred thread is skipped in its run, booked in `data/state/deferrals.json`, and resurfaced by the first scan on or after its date (`due --consume` removes what it returns).
 
 `bun scripts/calendar-view.ts --from <iso> --to <iso> [--json]` — the user's busy list between two instants (recurring series expanded). Grounds scheduling-type replies: read it next to user.md's working hours to propose real slots. Read-only.
 
