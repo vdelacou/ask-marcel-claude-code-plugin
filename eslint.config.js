@@ -44,9 +44,9 @@ export default [
     },
   },
   {
-    // The M365-access boundary (R3): the composition root, the Office adapter, and the
-    // adapter's own test may import the library. The no-mock restriction still holds here.
-    files: ['src/composition/**/*.ts', 'src/infra/office.ts', 'src/infra/office.test.ts'],
+    // The M365-access boundary (R3): the composition root, the Office adapter + login flow,
+    // and their own tests may import the library. The no-mock restriction still holds here.
+    files: ['src/composition/**/*.ts', 'src/infra/office.ts', 'src/infra/office.test.ts', 'src/infra/office-login.ts', 'src/infra/office-login.test.ts'],
     rules: { 'no-restricted-imports': ['error', { paths: [BUN_TEST_MOCK] }] },
   },
   {

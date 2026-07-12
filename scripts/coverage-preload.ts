@@ -25,6 +25,8 @@ import '../src/infra/file-reader.ts';
 import '../src/infra/file-state-store.ts';
 import '../src/infra/file-writer.ts';
 import '../src/infra/logger.ts';
+import '../src/infra/login-entry.ts';
+import '../src/infra/office-login.ts';
 import '../src/infra/office.ts';
 
 // --- src/composition/ ---
