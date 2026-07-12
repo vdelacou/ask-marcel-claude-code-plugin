@@ -113,3 +113,11 @@ bun scripts/login.ts --fresh calls the library logout (wipes ~/.ask-marcel/token
 ## [gotcha] 2026-07-11 | marketplace cache installs have no node_modules; Bun auto-install covers script runs
 
 A plugin installed from the marketplace cache (~/.claude/plugins/cache/...) ships without node_modules; bun scripts/*.ts still resolves ask-marcel-office-cli through Bun auto-install from the global cache (verified live from a checkout with no node_modules). So absence of node_modules is not a login failure mode on this machine.
+
+## [gotcha] 2026-07-12 | core.hooksPath is per-clone opt-in - gates silently do not run until it is set
+
+Every commit of the 2026-07-11/12 sessions ran ZERO pre-commit gates: this clone never had `git config core.hooksPath .githooks` (it is per-clone config, not part of the repo), and nothing warns. The manual four-check habit masked it until a slice with a failing mutation score landed anyway. Verify `git config core.hooksPath` prints `.githooks` before trusting any "gates passed" - and after any clone, filter-repo surgery, or machine move. The retro-audit path: per-commit numstat vs 10/300, check-r4-fence, gitleaks detect over history, then harden and amend what slipped.
+
+## [gotcha] 2026-07-12 | piped gate output lies twice - read verdicts from an unpiped exit code
+
+Two distinct traps in one session: (1) `bunx stryker run ... | grep score && git commit` chains on GREP's exit, so an 84.71% failing run committed anyway; (2) `cmd | tail -4; echo $?` prints TAIL's exit, so even the diagnostic lied. Same family as the 2026-07-04 pipeline-tails entry, now with the $?-after-pipeline variant. Run the gate bare with output redirected to a file (`cmd > log 2>&1; echo $?`), then grep the file.
