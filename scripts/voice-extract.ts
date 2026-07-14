@@ -1,7 +1,8 @@
 /*
  * Thin CLI entry: bun scripts/voice-extract.ts [--keep N] [--json]
  * Build the voice corpus (SPEC.md §9): the last N substantive messages the
- * user wrote, from ALL folders (from:me filter), quoted chains and signatures
+ * user wrote, from ALL folders (from:me KQL search - not an OData $filter, which
+ * Graph rejects as InefficientFilter), quoted chains and signatures
  * stripped, bucketed upward/peers/external/broadcast. Writes
  * data/scratch/voice-<stamp>/corpus.json. Exit 1 on error or crash.
  */
@@ -19,6 +20,18 @@ const flagValue = (name: string, fallback: string): string => {
   const index = Bun.argv.indexOf(name);
   return index === -1 ? fallback : (Bun.argv[index + 1] ?? fallback);
 };
+
+// --help must NOT reach Microsoft 365: print usage and exit before any Graph call (previously it
+// fell through and re-ran the whole extract, erroring instead of helping).
+if (Bun.argv.includes('--help') || Bun.argv.includes('-h')) {
+  console.log('usage: bun scripts/voice-extract.ts [--job-title "<title-prefix>"] [--keep N] [--json]');
+  console.log('  Build the voice corpus (SPEC §9): the last N substantive own-bodies sourced by a');
+  console.log('  from:me KQL search across ALL folders, quoted chains + signatures stripped, bucketed.');
+  console.log('  --job-title  a sign-off title prefix to strip from bodies (optional)');
+  console.log('  --keep       how many substantive messages to keep (default from config)');
+  console.log('  --json       print a one-line result envelope');
+  process.exit(0);
+}
 
 const fetchData = async (office: Office, command: string): Promise<unknown> => {
   const run = await office.execute(command, {});

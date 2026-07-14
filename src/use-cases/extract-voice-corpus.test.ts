@@ -46,7 +46,7 @@ const setup = (list: OfficeResp, convertById: Readonly<Record<string, OfficeResp
     office: {
       execute: async (command, params) => {
         officeLog.push({ command, params });
-        if (command === 'list-mail-messages') return list;
+        if (command === 'search-mail-messages') return list;
         if (command === 'convert-mail-to-markdown') {
           // the corpus is prose-only: a conversion that embeds base64 images is a broken call
           if (params['inlineImages'] !== 'false') return err({ kind: 'command-failed', message: 'corpus conversion must pass inlineImages false' });
@@ -127,25 +127,40 @@ describe('extract-voice-corpus', () => {
     expect(result.value.scanned).toBe(2);
   });
 
-  test('a list command sends the from-me filter, the fetch cap, and the slim select', async () => {
+  test('the corpus is sourced by a from:me KQL search across all folders (no InefficientFilter combo), slim select', async () => {
     const { extract, officeLog } = setup(listData([]));
 
     await extract(OPTIONS);
 
+    // search-mail-messages, NOT list-mail-messages with $filter+$orderby (which Graph rejects);
+    // raw unquoted KQL, no $orderby (search forbids it - we sort client-side)
     expect(officeLog[0]).toEqual({
-      command: 'list-mail-messages',
-      params: {
-        filter: "from/emailAddress/address eq 'me@internal-corp.com'",
-        top: '100',
-        orderby: 'receivedDateTime desc',
-        select: 'id,subject,toRecipients,ccRecipients,receivedDateTime,isDraft',
-      },
+      command: 'search-mail-messages',
+      params: { query: 'from:me@internal-corp.com', top: '100', select: 'id,subject,toRecipients,ccRecipients,receivedDateTime,isDraft' },
     });
+  });
+
+  test('search ranks by relevance, so the keep-loop sees the corpus newest-first via a client-side sort', async () => {
+    // input order is scrambled by date; keep is 2, so ONLY the two newest must survive
+    const { extract, written } = setup(
+      listData([
+        sentMeta('old', 'p1@internal-corp.com', { receivedDateTime: '2026-01-01T00:00:00Z' }),
+        sentMeta('newest', 'p2@internal-corp.com', { receivedDateTime: '2026-07-10T00:00:00Z' }),
+        sentMeta('middle', 'p3@internal-corp.com', { receivedDateTime: '2026-07-05T00:00:00Z' }),
+      ]),
+      { old: markdownData(substantiveMd('Old')), newest: markdownData(substantiveMd('New')), middle: markdownData(substantiveMd('Mid')) }
+    );
+
+    const result = await extract(OPTIONS);
+
+    if (!result.ok) throw new Error('expected ok');
+    // without the sort the loop would keep old+newest (input order); with it, newest+middle
+    expect(JSON.parse(written[0].content).messages.map((m: { id: string }) => m.id)).toEqual(['newest', 'middle']);
   });
 
   test('a mail source failure surfaces as source-failed; malformed list data is a well-formed empty corpus', async () => {
     const { extract } = setup(err({ kind: 'command-failed', message: 'boom' }));
-    expect(await extract(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'list-mail-messages', message: 'boom' } });
+    expect(await extract(OPTIONS)).toEqual({ ok: false, error: { kind: 'source-failed', source: 'search-mail-messages', message: 'boom' } });
 
     const garbage = setup(ok('not a record'));
     const result = await garbage.extract(OPTIONS);

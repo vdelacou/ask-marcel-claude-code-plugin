@@ -40,20 +40,27 @@ type Deps = {
   readonly logger: Logger;
 };
 
-const listParams = (options: CorpusOptions): Record<string, string> => ({
-  filter: `from/emailAddress/address eq '${options.me.email}'`,
+// SPEC §9: voice sourcing is `search-mail-messages` KQL `from:<me>` across ALL folders (catches
+// sent mail filed into project folders). The earlier `list-mail-messages` with a
+// `$filter from/emailAddress/address eq …` + `$orderby receivedDateTime` combination is rejected
+// by Graph as `InefficientFilter` (live blocker 2026-07-14), and `$search` forbids `$orderby`
+// anyway — so we ask by relevance and sort by date ourselves. KQL is raw, unquoted (the library
+// wraps the value on the wire; extra quotes make Graph reject it).
+const searchParams = (options: CorpusOptions): Record<string, string> => ({
+  query: `from:${options.me.email}`,
   top: String(options.fetchTop),
-  // Graph does not guarantee a default sort; without $orderby the page returned for $top is
-  // arbitrary (in practice ascending), so the "last N substantive" corpus became the OLDEST N
-  // (#2: 33 messages all from Jan 2026, none recent). receivedDateTime is an indexed property,
-  // so it composes with the from: filter and ranks the newest sent mail first.
-  orderby: 'receivedDateTime desc',
   select: 'id,subject,toRecipients,ccRecipients,receivedDateTime,isDraft',
 });
 
+// Newest first: ISO-8601 instants sort chronologically, so a reversed localeCompare is desc.
+const byNewestSent = (a: SentMeta, b: SentMeta): number => b.sentAt.localeCompare(a.sentAt);
+
 const listSent = async (deps: Deps, options: CorpusOptions): Promise<Result<ReadonlyArray<SentMeta>, CorpusError>> => {
-  const run = await deps.office.execute('list-mail-messages', listParams(options));
-  return run.ok ? ok(extractSentMetas(run.value)) : err({ kind: 'source-failed', source: 'list-mail-messages', message: run.error.message });
+  const run = await deps.office.execute('search-mail-messages', searchParams(options));
+  if (!run.ok) return err({ kind: 'source-failed', source: 'search-mail-messages', message: run.error.message });
+  // search ranks by relevance, but the keep-loop takes the FIRST N substantive - so it must see
+  // the newest sent mail first, hence the client-side sort (the fix that replaced the rejected $orderby).
+  return ok([...extractSentMetas(run.value)].sort(byNewestSent));
 };
 
 const ownBodyOf = async (deps: Deps, meta: SentMeta, options: CorpusOptions): Promise<string | undefined> => {
