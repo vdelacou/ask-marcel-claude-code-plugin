@@ -64,7 +64,7 @@ All Microsoft 365 and local work goes through `bun "${CLAUDE_PLUGIN_ROOT}/script
 }
 ```
 
-The three strategies must be genuinely different stances (e.g. commit / clarify / redirect), not three phrasings of one answer.
+The three strategies must be genuinely different stances (e.g. commit / clarify / redirect), not three phrasings of one answer. When you offer a **redirect** stance, name the actual owner to forward to in its `skeleton` (an address or a KB people-page link) so the drafting step knows the forward target - a redirect with no named recipient is not actionable.
 
 ## Hard rules
 

@@ -126,7 +126,7 @@ One **email-researcher** per approved email. Inside the agent:
 5. Draft in main thread — voice-profile bucket voice (§9), signature, language choice per recipient/thread.
 6. `draft-preflight.ts` must exit 0 (rewrite loop until clean).
 7. Show draft → **AskUserQuestion**: approve / request changes. On approve: `state → user_approved`.
-8. `draft-apply.ts`: search Drafts for an existing draft on this `conversationId` (`list-mail-folder-messages --id drafts --filter`) → **`ask-marcel update-mail-draft`**; else **`ask-marcel create-reply-draft`** (new CLI command, Graph `createReplyAll` under the hood — threaded, quoted history, inherited recipients) then update body/subject. All through the CLI — the plugin holds no Graph client and no token (decision 19). Never sends. `state → draft_created`.
+8. `draft-apply.ts` (reply/commit/clarify stances) or `forward-apply.ts` (redirect stance — an UNSENT forward draft to the right owner, plain-text comment, `create-forward-draft` in ask-marcel-office-cli ≥ 2.1.0): the reply path searches Drafts for an existing draft on this `conversationId` (`list-mail-folder-messages --id drafts --filter`) → **`ask-marcel update-mail-draft`**; else **`ask-marcel create-reply-draft`** (new CLI command, Graph `createReplyAll` under the hood — threaded, quoted history, inherited recipients) then update body/subject. All through the CLI — the plugin holds no Graph client and no token (decision 19). Never sends. `state → draft_created`.
 9. Drain this email's KB queue (`kb-queue.ts drain --email-id` — CONSUMING: the batch leaves the queue file, so nothing is ever re-landed): batches to **kb-curator** (§8). `state → kb_captured → done`.
 
 ### Phase 5 — Wrap-up (code + report; run-level gates)

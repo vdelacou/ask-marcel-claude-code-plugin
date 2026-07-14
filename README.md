@@ -74,6 +74,8 @@ data/              # runtime KB / profile / scratch / reports / state — gitign
 
 `bun scripts/draft-apply.ts --run-id <id> --email-id <id> --conversation-id <id> --reply-to <messageId> --subject "<s>" --body-file <path> [--to "a@x,b@y"] [--cc "c@z"] [--json]` — Phase 4 (§2): create or update the UNSENT reply draft for a `user_approved` email (the code approval gate), then advance to `draft_created`. Never sends. `--reply-to` takes the Graph message `id` (the value `inbox-scan` surfaces on each candidate, not the RFC-822 `internetMessageId`). On create the subject is inherited (`RE:` auto-prefixed); `--subject` applies only on update and is flagged `subject-ignored-on-create` if passed on create. `--to`/`--cc` apply a user-approved recipients delta (comma-separated); omitted, the draft keeps the threaded reply-all audience.
 
+`bun scripts/forward-apply.ts --run-id <id> --email-id <id> --forward-to <messageId> --to "owner@x" [--cc "c@z"] [--subject "<s>"] --comment-file <path> [--json]` — the redirect stance: create an UNSENT forward draft of the thread to the right owner with a short plain-text comment. Same `user_approved` code gate as draft-apply; never sends. Requires ask-marcel-office-cli ≥ 2.1.0 (`create-forward-draft`).
+
 `bun scripts/read-mail.ts --message-id <id>` (prints one message as markdown) or `--conversation-id <id> [--top N] [--json]` (lists a thread) — the R4-compliant read path used by triage-scout.
 
 `bun scripts/write-kb-page.ts --page-file <path> [--json]` — kb-curator's write mechanic (§8): land one vetted OKF page, creating it or merging under a dated `## Update`, append the log line, and lint the landed page in-process (`lint` in the JSON).
