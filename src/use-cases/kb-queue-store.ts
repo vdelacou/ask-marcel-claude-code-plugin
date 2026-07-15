@@ -1,5 +1,5 @@
 import { findBlockedTerm, NEVER_CAPTURE_PATH, parseNeverCapture } from '../domain/capture-filter.ts';
-import { appendToQueue, serializeCandidate, splitQueue } from '../domain/kb-queue.ts';
+import { appendToQueue, matchesFilter, parseQueue, serializeCandidate, splitQueue } from '../domain/kb-queue.ts';
 import type { DrainFilter, KbCandidate } from '../domain/kb-queue.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
@@ -39,6 +39,18 @@ export const createAppendKbCandidate =
     const existing = await readExisting(deps, path);
     if (!existing.ok) return err(existing.error);
     return deps.writer.write(path, appendToQueue(existing.value, candidate));
+  };
+
+export type PeekKbQueue = (runId: RunId, filter?: DrainFilter) => Promise<Result<ReadonlyArray<KbCandidate>, ReadError>>;
+
+// Peek reads the queue WITHOUT consuming it (unlike drain): the file is left byte-identical, so a wrap-up
+// leftover-count or any inspection never destroys what a run still holds. Mirrors deferrals `due` (peek/consume).
+export const createPeekKbQueue =
+  (deps: ReadDeps): PeekKbQueue =>
+  async (runId, filter = {}) => {
+    const existing = await readExisting(deps, queuePath(runId));
+    if (!existing.ok) return err(existing.error);
+    return ok(parseQueue(existing.value).filter((candidate) => matchesFilter(candidate, filter)));
   };
 
 export type DrainKbQueue = (runId: RunId, filter?: DrainFilter) => Promise<Result<ReadonlyArray<KbCandidate>, QueueError>>;

@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import type { KbCandidate } from '../domain/kb-queue.ts';
 import { parseRunId } from '../domain/run-id.ts';
 import { err, ok, unwrap } from '../domain/result.ts';
-import { createAppendKbCandidate, createDrainKbQueue } from './kb-queue-store.ts';
+import { createAppendKbCandidate, createDrainKbQueue, createPeekKbQueue } from './kb-queue-store.ts';
 import type { FileProbe } from './ports/file-probe.ts';
 import type { FileReader } from './ports/file-reader.ts';
 import type { FileWriter } from './ports/file-writer.ts';
@@ -57,6 +57,12 @@ describe('kb-queue-store', () => {
 
   test('draining a run that never queued anything yields an empty batch', async () => {
     expect(await createDrainKbQueue(createStore())(RUN_ID)).toEqual({ ok: true, value: [] });
+  });
+
+  test('draining an empty run leaves the queue file uncreated (no needless rewrite)', async () => {
+    const store = createStore();
+    await createDrainKbQueue(store)(RUN_ID);
+    expect(store.snapshot(PATH)).toBeUndefined();
   });
 
   test('an existing but unreadable queue fails the append rather than clobbering it', async () => {
@@ -138,5 +144,35 @@ describe('kb-queue-store', () => {
 
     expect(await createDrainKbQueue(store)(RUN_ID)).toEqual({ ok: false, error: { kind: 'write-failed', path: PATH, message: 'disk full' } });
     expect(store.snapshot(PATH)).toBe(initial);
+  });
+
+  test('peeking returns the queued candidates without consuming them - the queue file stays byte-identical', async () => {
+    const initial = `${JSON.stringify(JARGON)}\n${JSON.stringify(FACT)}\n`;
+    const store = createStore({ [PATH]: initial });
+    const peek = createPeekKbQueue(store);
+
+    expect(await peek(RUN_ID)).toEqual({ ok: true, value: [JARGON, FACT] });
+    expect(await peek(RUN_ID)).toEqual({ ok: true, value: [JARGON, FACT] });
+    expect(store.snapshot(PATH)).toBe(initial);
+  });
+
+  test('peeking a run that never queued anything yields an empty batch', async () => {
+    expect(await createPeekKbQueue(createStore())(RUN_ID)).toEqual({ ok: true, value: [] });
+  });
+
+  test('peeking honours the same filter as drain, still without consuming', async () => {
+    const OTHER: KbCandidate = { kind: 'fact', emailId: 'm2', folder: 'orgs', slug: 'acme', title: 'Acme', content: 'vendor', rationale: 'context' };
+    const initial = `${JSON.stringify(FACT)}\n${JSON.stringify(OTHER)}\n${JSON.stringify(JARGON)}\n`;
+    const store = createStore({ [PATH]: initial });
+
+    expect(await createPeekKbQueue(store)(RUN_ID, { emailId: 'm1' })).toEqual({ ok: true, value: [FACT] });
+    expect(await createPeekKbQueue(store)(RUN_ID, { kind: 'jargon' })).toEqual({ ok: true, value: [JARGON] });
+    expect(store.snapshot(PATH)).toBe(initial);
+  });
+
+  test('an unreadable queue fails the peek', async () => {
+    const store = createStore({ [PATH]: 'x' }, { unreadable: PATH });
+
+    expect(await createPeekKbQueue(store)(RUN_ID)).toEqual({ ok: false, error: { kind: 'read-failed', path: PATH, message: 'unreadable' } });
   });
 });
