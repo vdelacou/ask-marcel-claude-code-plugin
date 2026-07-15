@@ -1,5 +1,5 @@
 /*
- * Thin CLI entry: bun scripts/forward-apply.ts --run-id <id> --email-id <id> \
+ * Thin CLI entry: bun scripts/forward-apply.ts --run-id <id> --email-id <id> --conversation-id <cid> \
  *   --forward-to <messageId> --to "a@x,b@y" [--cc "c@z"] [--subject "<s>"] --comment-file <path> [--json]
  * SPEC.md §2 Phase 4 (redirect stance): create the UNSENT forward draft for an approved email.
  * Same code approval gate as draft-apply - refuses unless the email is user_approved (and never
@@ -29,6 +29,7 @@ const splitAddresses = (raw: string): ReadonlyArray<string> =>
 try {
   const runId = parseRunId(flagValue('--run-id'));
   const emailId = flagValue('--email-id');
+  const conversationId = flagValue('--conversation-id');
   const forwardMessageId = flagValue('--forward-to');
   const commentFile = flagValue('--comment-file');
   const to = splitAddresses(flagValue('--to'));
@@ -36,8 +37,8 @@ try {
     console.error(`forward-apply: invalid --run-id (${runId.error})`);
     process.exit(1);
   }
-  if (emailId === '' || forwardMessageId === '' || commentFile === '' || to.length === 0) {
-    console.error('forward-apply: --email-id, --forward-to, --comment-file and at least one --to are required');
+  if (emailId === '' || conversationId === '' || forwardMessageId === '' || commentFile === '' || to.length === 0) {
+    console.error('forward-apply: --email-id, --conversation-id, --forward-to, --comment-file and at least one --to are required');
     process.exit(1);
   }
   const deps = buildDeps(loadConfig({ LOG_LEVEL: 'error', ...process.env }));
@@ -51,6 +52,7 @@ try {
   const result = await createForwardApply(deps)({
     runId: runId.value,
     emailId,
+    conversationId,
     forwardMessageId,
     comment: commentRead.value,
     to,
