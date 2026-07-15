@@ -76,7 +76,7 @@ data/              # runtime KB / profile / scratch / reports / state — gitign
 
 `bun scripts/forward-apply.ts --run-id <id> --email-id <id> --conversation-id <cid> --forward-to <messageId> --to "owner@x" [--cc "c@z"] [--subject "<s>"] --comment-file <path> [--json]` — the redirect stance: create an UNSENT forward draft of the thread to the right owner with a short plain-text comment. Same `user_approved` code gate as draft-apply; never sends. Requires ask-marcel-office-cli ≥ 2.1.0 (`create-forward-draft`).
 
-`bun scripts/read-mail.ts --message-id <id>` (prints one message as markdown) or `--conversation-id <id> [--top N] [--json]` (lists a thread) — the R4-compliant read path used by triage-scout.
+`bun scripts/read-mail.ts --message-id <id>` (prints one message as markdown), `--conversation-id <id> [--top N] [--json]` (lists a thread oldest-first), or `--conversation-id <id> --latest [--json]` (only the current latest message) — the R4-compliant read path used by triage-scout.
 
 `bun scripts/write-kb-page.ts --page-file <path> [--json]` — kb-curator's write mechanic (§8): land one vetted OKF page, creating it or merging under a dated `## Update`, append the log line, and lint the landed page in-process (`lint` in the JSON).
 
