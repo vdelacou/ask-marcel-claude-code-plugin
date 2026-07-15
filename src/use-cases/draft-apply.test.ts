@@ -19,7 +19,13 @@ const REQUEST: DraftApplyRequest = { runId: RUN_ID, emailId: 'msg-1', conversati
 
 type OfficeResp = Result<unknown, OfficeError>;
 
-type Overrides = { readonly drafts?: OfficeResp; readonly create?: OfficeResp; readonly update?: OfficeResp; readonly mode?: 'interactive' | 'pre-research' };
+type Overrides = {
+  readonly drafts?: OfficeResp;
+  readonly create?: OfficeResp;
+  readonly update?: OfficeResp;
+  readonly thread?: OfficeResp;
+  readonly mode?: 'interactive' | 'pre-research';
+};
 
 const listing = (messages: ReadonlyArray<unknown>): OfficeResp => ok({ value: messages });
 const draftResource = (id: string): OfficeResp => ok({ id, isDraft: true });
@@ -38,6 +44,8 @@ const setup = (emailState: EmailState, overrides: Overrides = {}): Setup => {
   // The office fake enforces the library's param contracts, so a wrong bodyContentType fails here.
   const office = createOfficeFake({
     'list-mail-folder-messages': async () => overrides.drafts ?? listing([]),
+    'list-conversation-messages': async () =>
+      overrides.thread ?? listing([{ id: 'msg-1', from: { emailAddress: { address: 's@x.com' } }, receivedDateTime: '2026-07-04T10:00:00Z' }]),
     'create-reply-draft': async () => overrides.create ?? draftResource('new-draft-1'),
     'update-mail-draft': async () => overrides.update ?? draftResource('existing-draft-1'),
   });
@@ -55,6 +63,7 @@ describe('draft-apply', () => {
     // it searches Drafts by conversation, then creates a threaded reply draft (never a fresh compose)
     expect(office.calls).toEqual([
       { command: 'list-mail-folder-messages', params: { mailFolderId: 'drafts', filter: "conversationId eq 'conv-1'", select: 'id,conversationId' } },
+      { command: 'list-conversation-messages', params: { conversationId: 'conv-1', top: '50', select: 'id,from,receivedDateTime' } },
       { command: 'create-reply-draft', params: { replyToMessageId: 'msg-1', bodyContent: '<p>Reply</p>', bodyContentType: 'HTML' } },
     ]);
     expect(stateStore.snapshot(RUN_ID)?.emails).toEqual({ 'msg-1': 'draft_created' });
@@ -105,7 +114,7 @@ describe('draft-apply', () => {
     const result = await draftApply({ ...REQUEST, to: ['jane@internal-corp.com', 'peer@internal-corp.com'], cc: ['boss@internal-corp.com'] });
 
     expect(result).toEqual({ ok: true, value: { mode: 'created', draftId: 'new-draft-1', subjectIgnored: true, recipientsApplied: true } });
-    expect(office.calls[2]).toEqual({
+    expect(office.calls[3]).toEqual({
       command: 'update-mail-draft',
       params: { messageId: 'new-draft-1', toRecipients: 'jane@internal-corp.com,peer@internal-corp.com', ccRecipients: 'boss@internal-corp.com' },
     });
@@ -129,7 +138,7 @@ describe('draft-apply', () => {
     const result = await draftApply({ ...REQUEST, cc: ['boss@internal-corp.com'] });
 
     expect(result).toEqual({ ok: false, error: { kind: 'draft-failed', message: 'draft new-draft-1 created but recipients not applied: recipient rejected' } });
-    expect(office.calls).toHaveLength(3);
+    expect(office.calls).toHaveLength(4);
     expect(stateStore.snapshot(RUN_ID)?.emails).toEqual({ 'msg-1': 'user_approved' });
   });
 
@@ -176,5 +185,55 @@ describe('draft-apply', () => {
     stateStore.failWith('save', { kind: 'io', message: 'disk full' });
 
     expect(await draftApply(REQUEST)).toEqual({ ok: false, error: { kind: 'state-store-failed', message: 'disk full' } });
+  });
+
+  test('a newer message arriving since triage retargets the reply to the current latest and flags it', async () => {
+    const { draftApply, office, logger } = setup('user_approved', {
+      thread: listing([
+        { id: 'msg-1', from: { emailAddress: { address: 's@x.com' } }, receivedDateTime: '2026-07-04T10:00:00Z' },
+        { id: 'msg-2', from: { emailAddress: { address: 's@x.com' } }, receivedDateTime: '2026-07-04T11:00:00Z' },
+      ]),
+    });
+
+    const result = await draftApply(REQUEST);
+
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.value).toMatchObject({ mode: 'created', draftId: 'new-draft-1', retargeted: true });
+    expect(office.calls).toContainEqual({ command: 'create-reply-draft', params: { replyToMessageId: 'msg-2', bodyContent: '<p>Reply</p>', bodyContentType: 'HTML' } });
+    expect(logger.calls).toContainEqual({ level: 'warn', event: 'reply-target-retargeted', meta: { emailId: 'msg-1', from: 'msg-1', to: 'msg-2', newerCount: 1 } });
+  });
+
+  test('a superseding message keeps the count even when the triaged message is beyond the fetched window', async () => {
+    const { draftApply, office, logger } = setup('user_approved', {
+      thread: listing([
+        { id: 'msg-8', from: { emailAddress: { address: 's@x.com' } }, receivedDateTime: '2026-07-04T12:00:00Z' },
+        { id: 'msg-9', from: { emailAddress: { address: 's@x.com' } }, receivedDateTime: '2026-07-04T13:00:00Z' },
+      ]),
+    });
+
+    await draftApply(REQUEST); // triaged msg-1 is not in the window
+
+    expect(office.calls).toContainEqual({ command: 'create-reply-draft', params: { replyToMessageId: 'msg-9', bodyContent: '<p>Reply</p>', bodyContentType: 'HTML' } });
+    expect(logger.calls).toContainEqual({ level: 'warn', event: 'reply-target-retargeted', meta: { emailId: 'msg-1', from: 'msg-1', to: 'msg-9', newerCount: 2 } });
+  });
+
+  test('a conversation fetch failure falls back to the triaged id and never blocks the approved draft', async () => {
+    const { draftApply, office, logger } = setup('user_approved', { thread: commandFailed('graph 503') });
+
+    const result = await draftApply(REQUEST);
+
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.value.retargeted).toBeUndefined();
+    expect(office.calls).toContainEqual({ command: 'create-reply-draft', params: { replyToMessageId: 'msg-1', bodyContent: '<p>Reply</p>', bodyContentType: 'HTML' } });
+    expect(logger.calls).toContainEqual({ level: 'warn', event: 'reply-target-resolve-failed', meta: { emailId: 'msg-1', message: 'graph 503' } });
+  });
+
+  test('an empty conversation window falls back to the triaged id', async () => {
+    const { draftApply, office, logger } = setup('user_approved', { thread: listing([]) });
+
+    await draftApply(REQUEST);
+
+    expect(office.calls).toContainEqual({ command: 'create-reply-draft', params: { replyToMessageId: 'msg-1', bodyContent: '<p>Reply</p>', bodyContentType: 'HTML' } });
+    expect(logger.calls).toContainEqual({ level: 'warn', event: 'reply-target-resolve-failed', meta: { emailId: 'msg-1', message: 'empty conversation window' } });
   });
 });

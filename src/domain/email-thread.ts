@@ -39,6 +39,20 @@ export const extractThreadMessages = (data: unknown): ReadonlyArray<ThreadMessag
   return data['value'].filter(isRecord).map(toThreadMessage).filter(isThreadMessage).sort(byReceivedAscending);
 };
 
+export type ReplyTarget = { readonly latestId: string; readonly newerCount: number };
+
+/** The chronological last message (extractThreadMessages sorts ascending), or undefined for an empty thread. */
+export const latestThreadMessage = (messages: ReadonlyArray<ThreadMessage>): ThreadMessage | undefined => messages.at(-1);
+
+// newerCount = how many messages arrived after the one triaged at scan time. length-1-index gives 0 when the
+// triaged id is already the latest, and `length` when it is absent from the fetched window (all of it is newer).
+/** The current reply target and how many messages postdate the triaged one (0 = the triaged id is still the latest). */
+export const resolveReplyTarget = (messages: ReadonlyArray<ThreadMessage>, triagedId: string): ReplyTarget | undefined => {
+  const latest = latestThreadMessage(messages);
+  if (latest === undefined) return undefined;
+  return { latestId: latest.id, newerCount: messages.length - 1 - messages.findIndex((message) => message.id === triagedId) };
+};
+
 /** convert-mail-to-markdown envelope: `{ contentType, size, text, note? }` — the rendered body lives in `text`. */
 export const extractMarkdown = (data: unknown): Result<string, string> => {
   if (!isRecord(data)) return err('markdown: unexpected shape');

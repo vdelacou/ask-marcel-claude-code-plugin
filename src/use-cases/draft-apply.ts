@@ -1,4 +1,5 @@
 import type { RunFile } from '../domain/email-state.ts';
+import { extractThreadMessages, resolveReplyTarget } from '../domain/email-thread.ts';
 import { extractDraftId, extractFirstMessageId } from '../domain/mail-draft.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
@@ -25,7 +26,13 @@ export type DraftApplyError =
   | { readonly kind: 'draft-failed'; readonly message: string }
   | { readonly kind: 'state-store-failed'; readonly message: string };
 
-export type DraftApplySummary = { readonly mode: 'created' | 'updated'; readonly draftId: string; readonly subjectIgnored?: true; readonly recipientsApplied?: true };
+export type DraftApplySummary = {
+  readonly mode: 'created' | 'updated';
+  readonly draftId: string;
+  readonly subjectIgnored?: true;
+  readonly recipientsApplied?: true;
+  readonly retargeted?: true;
+};
 
 export type DraftApply = (request: DraftApplyRequest) => Promise<Result<DraftApplySummary, DraftApplyError>>;
 
@@ -41,6 +48,33 @@ const recipientParams = (request: DraftApplyRequest): Record<string, string> => 
 
 const hasRecipients = (request: DraftApplyRequest): boolean => request.to !== undefined || request.cc !== undefined;
 
+type ReplyTo = { readonly id: string; readonly retargeted: boolean };
+
+const warnFallback = (deps: Deps, request: DraftApplyRequest, message: string): ReplyTo => {
+  deps.logger.warn('reply-target-resolve-failed', { emailId: request.emailId, message });
+  return { id: request.replyToMessageId, retargeted: false };
+};
+
+// The reply-to id was captured at scan time; a conversation can gain a newer message before the user
+// approves the draft. Re-resolve the current latest and thread under it (retargeted), or fall back to the
+// scan-time id when the thread cannot be read - a transient read failure never blocks an approved draft.
+const resolveReplyTo = async (deps: Deps, request: DraftApplyRequest): Promise<ReplyTo> => {
+  const run = await deps.office.execute('list-conversation-messages', { conversationId: request.conversationId, top: '50', select: 'id,from,receivedDateTime' });
+  if (!run.ok) return warnFallback(deps, request, run.error.message);
+  const target = resolveReplyTarget(extractThreadMessages(run.value), request.replyToMessageId);
+  if (target === undefined) return warnFallback(deps, request, 'empty conversation window');
+  if (target.newerCount === 0) return { id: target.latestId, retargeted: false };
+  deps.logger.warn('reply-target-retargeted', { emailId: request.emailId, from: request.replyToMessageId, to: target.latestId, newerCount: target.newerCount });
+  return { id: target.latestId, retargeted: true };
+};
+
+const createdSummary = (draftId: string, replyTo: ReplyTo, recipientsApplied: boolean): DraftApplySummary => ({
+  mode: 'created',
+  draftId,
+  ...(recipientsApplied ? { recipientsApplied: true as const } : {}),
+  ...(replyTo.retargeted ? { retargeted: true as const } : {}),
+});
+
 const findExistingDraft = async (deps: Deps, conversationId: string): Promise<Result<string | undefined, DraftApplyError>> => {
   const run = await deps.office.execute('list-mail-folder-messages', draftsParams(conversationId));
   return run.ok ? ok(extractFirstMessageId(run.value)) : err({ kind: 'draft-failed', message: run.error.message });
@@ -51,14 +85,15 @@ const findExistingDraft = async (deps: Deps, conversationId: string): Promise<Re
 // failed patch fails the whole apply (state stays user_approved), and the re-run takes the update
 // path on the now-existing draft - never a silently wrong audience.
 const createDraft = async (deps: Deps, request: DraftApplyRequest): Promise<Result<DraftApplySummary, DraftApplyError>> => {
-  const run = await deps.office.execute('create-reply-draft', { replyToMessageId: request.replyToMessageId, bodyContent: request.body, bodyContentType: 'HTML' });
+  const replyTo = await resolveReplyTo(deps, request);
+  const run = await deps.office.execute('create-reply-draft', { replyToMessageId: replyTo.id, bodyContent: request.body, bodyContentType: 'HTML' });
   if (!run.ok) return err({ kind: 'draft-failed', message: run.error.message });
   const draftId = extractDraftId(run.value);
   if (draftId === undefined) return err({ kind: 'draft-failed', message: 'create-reply-draft returned no draft id' });
-  if (!hasRecipients(request)) return ok({ mode: 'created', draftId });
+  if (!hasRecipients(request)) return ok(createdSummary(draftId, replyTo, false));
   const patched = await deps.office.execute('update-mail-draft', { messageId: draftId, ...recipientParams(request) });
   return patched.ok
-    ? ok({ mode: 'created', draftId, recipientsApplied: true })
+    ? ok(createdSummary(draftId, replyTo, true))
     : err({ kind: 'draft-failed', message: `draft ${draftId} created but recipients not applied: ${patched.error.message}` });
 };
 
