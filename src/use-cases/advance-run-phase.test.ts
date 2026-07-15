@@ -149,4 +149,17 @@ describe('advance-run-phase', () => {
     expectErr(result);
     expect(result.error).toMatchObject({ kind: 'guard', error: { kind: 'queue-not-empty' } });
   });
+
+  test('the wrap-block error names how many candidates are still undrained', async () => {
+    const two = '{"kind":"jargon","term":"OKF"}\n{"kind":"fact","emailId":"m1","folder":"orgs","slug":"acme","title":"Acme","content":"x","rationale":"y"}\n';
+    const { advanceRun } = setup({ mode: 'interactive', phase: 'reindexed', emails: { m1: 'done' } }, two);
+
+    const blocked = await advanceRun(RUN, 'wrapped');
+
+    expectErr(blocked);
+    expect(blocked.error).toEqual({
+      kind: 'guard',
+      error: { kind: 'queue-not-empty', message: '2 undrained candidate(s) remain in the KB queue - drain or discard before wrapping (SPEC §2)' },
+    });
+  });
 });

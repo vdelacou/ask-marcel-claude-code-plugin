@@ -1,6 +1,6 @@
 import { advanceRunPhase, resumeRun } from '../domain/email-state.ts';
 import type { RunGuardError, RunPhase } from '../domain/email-state.ts';
-import { isQueueEmpty } from '../domain/kb-queue.ts';
+import { parseQueue } from '../domain/kb-queue.ts';
 import { parseRunId } from '../domain/run-id.ts';
 import { err, ok } from '../domain/result.ts';
 import type { Result } from '../domain/result.ts';
@@ -18,14 +18,14 @@ export type ResumeRun = (rawRunId: string) => Promise<Result<'interactive', RunA
 
 type Deps = { readonly stateStore: StateStore; readonly files: FileProbe; readonly reader: FileReader; readonly logger: Logger };
 
-// The wrapped gate reads the run's KB queue: a missing or unreadable-as-empty file counts as
-// drained; any parseable candidate blocks the wrap (SPEC §2: wrapped is unreachable while the
-// queue is non-empty).
-const queueEmpty = async (deps: Deps, runId: string): Promise<boolean> => {
+// The wrapped gate reads the run's KB queue: a missing file counts as drained (0); an unreadable one
+// blocks (`unreadable`); otherwise the parseable-candidate count blocks when non-zero (SPEC §2: wrapped
+// is unreachable while the queue is non-empty). The count is surfaced so the block names how many remain.
+const queueRemaining = async (deps: Deps, runId: string): Promise<number | 'unreadable'> => {
   const path = `data/scratch/${runId}/kb-queue.jsonl`;
-  if (!(await deps.files.exists(path))) return true;
+  if (!(await deps.files.exists(path))) return 0;
   const content = await deps.reader.read(path);
-  return content.ok ? isQueueEmpty(content.value) : false;
+  return content.ok ? parseQueue(content.value).length : 'unreadable';
 };
 
 export const createAdvanceRunPhase =
@@ -35,7 +35,7 @@ export const createAdvanceRunPhase =
     if (!runId.ok) return err({ kind: 'invalid-run-id', message: runId.error });
     const loaded = await deps.stateStore.load(runId.value);
     if (!loaded.ok) return err({ kind: 'store', message: loaded.error.message });
-    const gate = { queueEmpty: to === 'wrapped' ? await queueEmpty(deps, runId.value) : true };
+    const gate = { queueRemaining: to === 'wrapped' ? await queueRemaining(deps, runId.value) : 0 };
     const advanced = advanceRunPhase(loaded.value, to, gate);
     if (!advanced.ok) return err({ kind: 'guard', error: advanced.error });
     const saved = await deps.stateStore.save(runId.value, advanced.value);

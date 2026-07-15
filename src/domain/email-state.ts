@@ -136,7 +136,7 @@ export const advanceEmailInRun = (run: RunFile, emailId: string, to: EmailState)
 const isTerminal = (state: EmailState): boolean => state === 'done' || state === 'skipped';
 
 /** Advance the run phase. Wrap-up needs every email terminal; `wrapped` also needs an empty KB queue. */
-export const advanceRunPhase = (run: RunFile, to: RunPhase, gate: { readonly queueEmpty: boolean }): Result<RunFile, RunGuardError> => {
+export const advanceRunPhase = (run: RunFile, to: RunPhase, gate: { readonly queueRemaining: number | 'unreadable' }): Result<RunFile, RunGuardError> => {
   if (!RUN_TRANSITIONS[run.phase].includes(to)) return err({ kind: 'invalid-run-transition', from: run.phase, to });
   // A pre-research run still loads its context (init → context_loaded) but never wraps.
   if (run.mode === 'pre-research' && to !== 'context_loaded')
@@ -145,7 +145,10 @@ export const advanceRunPhase = (run: RunFile, to: RunPhase, gate: { readonly que
   if (to === 'jargon_drained' && !emails.every(isTerminal)) {
     return err({ kind: 'emails-not-terminal', message: 'wrap-up cannot start while an email is neither done nor skipped' });
   }
-  if (to === 'wrapped' && !gate.queueEmpty) return err({ kind: 'queue-not-empty', message: 'the KB queue still holds undrained candidates - drain it before wrapping (SPEC §2)' });
+  if (to === 'wrapped' && gate.queueRemaining !== 0) {
+    const detail = gate.queueRemaining === 'unreadable' ? 'the KB queue could not be read' : `${gate.queueRemaining} undrained candidate(s) remain in the KB queue`;
+    return err({ kind: 'queue-not-empty', message: `${detail} - drain or discard before wrapping (SPEC §2)` });
+  }
   return ok({ ...run, phase: to });
 };
 

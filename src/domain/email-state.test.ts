@@ -69,34 +69,38 @@ describe('advanceEmailInRun guards', () => {
 describe('advanceRunPhase guards', () => {
   test('only wrapped consults the queue gate - jargon_drained proceeds even while candidates are queued', () => {
     const terminal = run({ emails: { m1: 'done', m2: 'skipped' } });
-    expect(advanceRunPhase(terminal, 'jargon_drained', { queueEmpty: false })).toEqual({ ok: true, value: { ...terminal, phase: 'jargon_drained' } });
+    expect(advanceRunPhase(terminal, 'jargon_drained', { queueRemaining: 3 })).toEqual({ ok: true, value: { ...terminal, phase: 'jargon_drained' } });
 
     const atReindexed = run({ phase: 'reindexed', emails: { m1: 'done' } });
-    expect(advanceRunPhase(atReindexed, 'wrapped', { queueEmpty: false })).toEqual({
+    expect(advanceRunPhase(atReindexed, 'wrapped', { queueRemaining: 3 })).toEqual({
       ok: false,
-      error: { kind: 'queue-not-empty', message: 'the KB queue still holds undrained candidates - drain it before wrapping (SPEC §2)' },
+      error: { kind: 'queue-not-empty', message: '3 undrained candidate(s) remain in the KB queue - drain or discard before wrapping (SPEC §2)' },
     });
-    expect(advanceRunPhase(atReindexed, 'wrapped', { queueEmpty: true })).toEqual({ ok: true, value: { ...atReindexed, phase: 'wrapped' } });
+    expect(advanceRunPhase(atReindexed, 'wrapped', { queueRemaining: 0 })).toEqual({ ok: true, value: { ...atReindexed, phase: 'wrapped' } });
+    expect(advanceRunPhase(atReindexed, 'wrapped', { queueRemaining: 'unreadable' })).toEqual({
+      ok: false,
+      error: { kind: 'queue-not-empty', message: 'the KB queue could not be read - drain or discard before wrapping (SPEC §2)' },
+    });
   });
 
   test('the terminality gate belongs to jargon_drained alone, with its exact message', () => {
-    expect(advanceRunPhase(run({ emails: { m1: 'researched' } }), 'jargon_drained', { queueEmpty: true })).toEqual({
+    expect(advanceRunPhase(run({ emails: { m1: 'researched' } }), 'jargon_drained', { queueRemaining: 0 })).toEqual({
       ok: false,
       error: { kind: 'emails-not-terminal', message: 'wrap-up cannot start while an email is neither done nor skipped' },
     });
     // init -> context_loaded never checks terminality, whatever the emails hold
-    expect(advanceRunPhase(run({ phase: 'init', emails: { m1: 'scanned' } }), 'context_loaded', { queueEmpty: true })).toEqual({
+    expect(advanceRunPhase(run({ phase: 'init', emails: { m1: 'scanned' } }), 'context_loaded', { queueRemaining: 0 })).toEqual({
       ok: true,
       value: run({ phase: 'context_loaded', emails: { m1: 'scanned' } }),
     });
   });
 
   test('the pre-research cap names the refused phase and spares only context_loaded', () => {
-    expect(advanceRunPhase(run({ mode: 'pre-research', phase: 'init', emails: {} }), 'context_loaded', { queueEmpty: true })).toEqual({
+    expect(advanceRunPhase(run({ mode: 'pre-research', phase: 'init', emails: {} }), 'context_loaded', { queueRemaining: 0 })).toEqual({
       ok: true,
       value: run({ mode: 'pre-research', phase: 'context_loaded', emails: {} }),
     });
-    expect(advanceRunPhase(run({ mode: 'pre-research', emails: { m1: 'skipped' } }), 'jargon_drained', { queueEmpty: true })).toEqual({
+    expect(advanceRunPhase(run({ mode: 'pre-research', emails: { m1: 'skipped' } }), 'jargon_drained', { queueRemaining: 0 })).toEqual({
       ok: false,
       error: { kind: 'pre-research-cap', message: 'a pre-research run stops at context_loaded/researched; resume it interactively to jargon_drained' },
     });
