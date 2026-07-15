@@ -121,3 +121,19 @@ Every commit of the 2026-07-11/12 sessions ran ZERO pre-commit gates: this clone
 ## [gotcha] 2026-07-12 | piped gate output lies twice - read verdicts from an unpiped exit code
 
 Two distinct traps in one session: (1) `bunx stryker run ... | grep score && git commit` chains on GREP's exit, so an 84.71% failing run committed anyway; (2) `cmd | tail -4; echo $?` prints TAIL's exit, so even the diagnostic lied. Same family as the 2026-07-04 pipeline-tails entry, now with the $?-after-pipeline variant. Run the gate bare with output redirected to a file (`cmd > log 2>&1; echo $?`), then grep the file.
+
+## [gotcha] 2026-07-15 | list-conversation-messages takes no $orderby - resolve "latest" client-side
+
+Graph rejects `$filter=conversationId eq '…'` combined with `$orderby` as `InefficientFilter` (ask-marcel-office-cli omits the passthrough deliberately), so a thread listing comes back unordered and `extractThreadMessages` sorts it ascending. The latest message is therefore `messages.at(-1)`, NOT `--top 1` (which is just an unordered page cap and is not reliably the newest). Anything resolving a reply/forward target, or a "current latest", must fetch a wide window (top 50, as fetch-email-bundle does) and take the max `receivedDateTime` locally. read-mail's `--latest` and draft/forward-apply's re-resolution all ride this.
+
+## [gotcha] 2026-07-15 | union `kind` strings the consumer never compares are unkillable mutants
+
+`resolveReplyTarget` first returned `{ kind: 'current' | 'superseded', … }`, but the use-case only ever checked `kind === 'current'` (the 'superseded' string was never read), so the `'superseded'` and `'current'` StringLiteral mutants survived and dragged email-thread.ts to 88.76%. Modelling the decision as the datum the consumer actually reads - `newerCount` (0 = current, >0 = superseded, and `length-1-findIndex` yields both plus the not-in-window case) - deleted the discriminant, the redundant `=== -1` branch, and the survivors at once (→ 92.41%). When a domain result's discriminant is only half-inspected downstream, replace it with the value that is inspected.
+
+## [gotcha] 2026-07-15 | the Stryker pre-commit gate is aggregate ≥90 - a lone laggard fails on staging
+
+`mutate:staged` mutates the staged domain/use-case files and checks Stryker's aggregate break threshold (90), not per-file. So a file sitting below 90 rides green as long as it is staged alongside stronger files, but the moment it is committed ALONE its aggregate IS its own score and the gate fails. kb-queue-store.ts was a ~86.7% laggard that only surfaced when the peek slice staged it by itself; one additive test (empty drain must not rewrite the file) cleared it. Before a single-file domain/use-case commit, run stryker on that file alone and expect to face its true score.
+
+## [decision] 2026-07-15 | stale reply-target guard is two-layered (skill freshness check + apply-time retarget)
+
+The scan-time reply/forward id can be superseded by a message arriving before the user approves the draft (pre-research widens the gap to hours). The fix is deliberately two rungs: (1) a graceful skill freshness check at Phase 4 entry - re-resolve the latest, and if it moved, advance `researched -> skipped` + `defer add --until <today>` for a clean reprocess (only legal transitions, facts left queued for the wrap drain); (2) an airtight apply-time re-resolution inside draft/forward-apply that retargets to the current latest, sets `retargeted`, and warns - best-effort, so a fetch failure or empty window falls back to the passed id and never blocks an approved draft. Layer 1 is the UX, layer 2 is the backstop for a message landing mid-gates.
